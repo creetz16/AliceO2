@@ -20,6 +20,25 @@ namespace o2
 namespace strangeness_tracking
 {
 
+template <typename T>
+KFParticle createKFParticleFromTrackParCov(const o2::track::TrackParametrizationWithError<T>& trackparCov, int charge, T mass) {
+  T xyzpxpypz[6];
+  o2::gpu::gpustd::array<T, 3> xyz, mom;
+  trackparCov.getPxPyPzGlo(mom);
+  trackparCov.getXYZGlo(xyz);
+  for (int i{0}; i < 3; ++i) {
+    xyzpxpypz[i] = xyz[i];
+    xyzpxpypz[i + 3] = mom[i];
+  }
+
+  o2::gpu::gpustd::array<T, 21> cv;
+  trackparCov.getCovXYZPxPyPzGlo(cv);
+
+  KFParticle kfPart;
+  kfPart.Create(xyzpxpypz, cv.data(), charge, mass);
+  return kfPart;
+}
+
 bool StrangenessTracker::loadData(const o2::globaltracking::RecoContainer& recoData)
 {
   clear();
@@ -106,6 +125,10 @@ void StrangenessTracker::prepareITStracks() // sort tracks by eta and phi and se
 
 void StrangenessTracker::process()
 {
+  #ifdef HomogeneousField
+    KFParticle::SetField(mBz);
+  #endif
+
   // Loop over V0s
   mDaughterTracks.resize(2); // resize to 2 prongs: first positive second negative
 
@@ -327,13 +350,22 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   int cand = 0; // best V0 candidate
   int nCand;
 
-  // refit cascade
-  if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
+  // ========== refit cascade ============
+  if (mStrangeTrack.mPartType == kCascade) {
+    // Do cascade with V0 from KF --> auto KFParticle cascade with create function
+    // print here the vertex I get from the DCA fitter and the one fomr the KF!!!
+    // How it is done in DCAFitter: GetPCA and then get XYZ from that (or similar)
+    // create cascade from Lam and bachelor (with mass from pion) --> check if it is far away from Xi mass --> if yes, SetMass of daughter track to kaon and do mother again --> if it is omega, store is as omega
+    // in principle I can also constrain Lambda to be a Lambda with mass constraint (= one of the next steps)
+
+    /// ======= DCA fitter reconstruction =======
+    // refit cascade
     V0 cascV0Upd;
     if (!recreateV0(mDaughterTracks[1], mDaughterTracks[2], cascV0Upd)) {
       LOG(debug) << "Cascade V0 refit failed";
       return false;
     }
+    cascV0Upd.setAbsCharge(0);
     try {
       nCand = mFitter3Body.process(cascV0Upd, mDaughterTracks[0], motherTrackClone);
     } catch (std::runtime_error& e) {
@@ -344,10 +376,55 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
       return false;
     }
+    int nCasc{0};
+    try {
+      nCasc = mFitterV0.process(cascV0Upd, mDaughterTracks[0]);  // refit V0
+    } catch (std::runtime_error& e) {
+      LOG(debug) << "Cascade refit failed " << e.what();
+    }
+    if (nCasc) {
+      mResettedMotherTrack = mFitterV0.createParentTrackParCov();
+    }
+
+
+    /// ======== KF reconstruction =========
+    // check mass of daughters
+    float massPosDaughter, massNegDaughter;
+    float massBachelor = o2::constants::physics::MassPionCharged;
+    if (mDaughterTracks[0].getSign() < 0) { // check charge of bachelor
+      massPosDaughter = o2::constants::physics::MassProton;
+      massNegDaughter = o2::constants::physics::MassPionCharged;
+    }  else {
+      massPosDaughter = o2::constants::physics::MassPionCharged;
+      massNegDaughter = o2::constants::physics::MassProton;
+    }
+    /// V0 reconstruction
+    KFParticle cascV0KF;
+    int nV0Daughters = 2;
+    // create KFParticle objects from trackParCovs
+    KFParticle kfpDaughter1 = createKFParticleFromTrackParCov(mDaughterTracks[1], mDaughterTracks[1].getSign(), massPosDaughter); // prong 1 (pos)
+    KFParticle kfpDaughter2 = createKFParticleFromTrackParCov(mDaughterTracks[2], mDaughterTracks[2].getSign(), massNegDaughter); // prong 2 (neg)
+    const KFParticle* V0Daughters[2] = {&kfpDaughter1, &kfpDaughter2};
+    // construct mother
+    cascV0KF.SetConstructMethod(2);
+    cascV0KF.Construct(V0Daughters, nV0Daughters);
+
+    /// cascade reconstruction
+    KFParticle cascKF;
+    int nCascDaughters = 2;
+    // create KFParticle objects from trackParCovs --> CONTINUE HERE!!!
+    KFParticle kfpDaughter0 = createKFParticleFromTrackParCov(mDaughterTracks[0], mDaughterTracks[0].getSign(), massBachelor); // bachelor
+    const KFParticle* CascDaugthers[2] = {&kfpDaughter0, &cascV0KF};
+    // construct mother
+    cascKF.SetConstructMethod(2);
+    cascKF.Construct(CascDaugthers, nCascDaughters);
+    mResettedMotherTrackKF = cascKF;
+
   }
 
-  // refit V0
+  // ========== refit V0 ==========
   else if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
+    /// ======= DCA fitter reconstruction =======
     try {
       nCand = mFitter3Body.process(mDaughterTracks[0], mDaughterTracks[1], motherTrackClone);
     } catch (std::runtime_error& e) {
@@ -358,7 +435,52 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
       return false;
     }
+    int nCasc{0};
+    try {
+      nCasc = mFitterV0.process(mDaughterTracks[0], mDaughterTracks[1]);  // refit V0
+    } catch (std::runtime_error& e) {
+      LOG(debug) << "Cascade refit failed " << e.what();
+    }
+    if (nCasc) {
+      mResettedMotherTrack = mFitterV0.createParentTrackParCov();
+    }
+
+    /// ======== KF reconstruction =========
+    // check mass of daughters
+    float massPosDaughter, massNegDaughter;
+    if (mDaughterTracks[0].getAbsCharge() == 2) { // check charges
+      massPosDaughter = o2::constants::physics::MassHelium3;
+      massNegDaughter = o2::constants::physics::MassPionCharged;
+    }  else {
+      massPosDaughter = o2::constants::physics::MassPionCharged;
+      massNegDaughter = o2::constants::physics::MassHelium3;
+    }
+    // V0 reconstruction
+    KFParticle V0KF;
+    int nV0Daughters = 2;
+    // create KFParticle objects from trackParCovs
+    KFParticle kfpDaughter0 = createKFParticleFromTrackParCov(mDaughterTracks[0], mDaughterTracks[0].getSign(), massPosDaughter); // prong 1 (pos)
+    KFParticle kfpDaughter1 = createKFParticleFromTrackParCov(mDaughterTracks[1], mDaughterTracks[1].getSign(), massNegDaughter); // prong 2 (neg)
+    const KFParticle* V0Daughters[2] = {&kfpDaughter0, &kfpDaughter1};
+    // construct mother
+    V0KF.SetConstructMethod(2);
+    V0KF.Construct(V0Daughters, nV0Daughters);
+    mResettedMotherTrackKF = V0KF;
   }
+
+  // get vertex position and chi2 of refitted track
+  mStrangeTrack.mdecayVtx = mFitter3Body.getPCACandidatePos();
+  mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
+  mStrangeTrack.decayVtxKFx = mResettedMotherTrackKF.GetX();
+  mStrangeTrack.decayVtxKFy = mResettedMotherTrackKF.GetY();
+  mStrangeTrack.decayVtxKFz = mResettedMotherTrackKF.GetZ();
+  mStrangeTrack.mGeoChi2KF = mResettedMotherTrackKF.GetChi2();
+  mStructClus.arr = nAttachments;
+  LOG(info) << "Chi2 DCA fitter: " << mStrangeTrack.mTopoChi2;
+  LOG(info) << "Chi2 KF: " << mStrangeTrack.mGeoChi2KF;
+  LOG(info) << "Vtx X KF: " << mStrangeTrack.decayVtxKFx;
+  LOG(info) << "Vtx Y KF: " << mStrangeTrack.decayVtxKFy;
+  LOG(info) << "Vtx Z KF: " << mStrangeTrack.decayVtxKFz;
 
   mStrangeTrack.mDecayVtx = mFitter3Body.getPCACandidatePos();
   mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
