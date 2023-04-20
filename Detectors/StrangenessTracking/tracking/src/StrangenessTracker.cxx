@@ -351,7 +351,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   int nCand;
 
   // ========== refit cascade ============
-  if (mStrangeTrack.mPartType == kCascade) {
+  if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
     // Do cascade with V0 from KF --> auto KFParticle cascade with create function
     // print here the vertex I get from the DCA fitter and the one fomr the KF!!!
     // How it is done in DCAFitter: GetPCA and then get XYZ from that (or similar)
@@ -469,8 +469,6 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   }
 
   // get vertex position and chi2 of refitted track
-  mStrangeTrack.mdecayVtx = mFitter3Body.getPCACandidatePos();
-  mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
   mStrangeTrack.decayVtxKFx = mResettedMotherTrackKF.GetX();
   mStrangeTrack.decayVtxKFy = mResettedMotherTrackKF.GetY();
   mStrangeTrack.decayVtxKFz = mResettedMotherTrackKF.GetZ();

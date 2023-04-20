@@ -39,7 +39,6 @@ struct StrangeTrack {
   float mITSClusSize;
   float mMatchChi2;
   float mTopoChi2;
-
   float decayVtxKFx;
   float decayVtxKFy;
   float decayVtxKFz;
