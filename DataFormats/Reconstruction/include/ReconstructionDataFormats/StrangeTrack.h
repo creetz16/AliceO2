@@ -34,16 +34,29 @@ struct StrangeTrack {
   unsigned int mITSRef = -1;
   unsigned int mDecayRef = -1;
   std::array<float, 3> mDecayVtx;
+  float decayVtxX;
+  float decayVtxY;
+  float decayVtxZ;
   std::array<float, 3> mDecayMom;
   std::array<float, 2> mMasses; // V0: hypertriton and hyperhydrongen4, cascade: Xi and Omega.
   float mITSClusSize;
   float mMatchChi2;
   float mTopoChi2;
-  float decayVtxKFx;
-  float decayVtxKFy;
-  float decayVtxKFz;
-  float mTopoChi2KF;
-  float mGeoChi2KF;
+};
+
+struct StrangeTrackKF {
+  kPartType mPartType;
+  o2::track::TrackParCovF mMother;
+  int mITSRef = -1;
+  int mDecayRef = -1;
+  float decayVtxX;
+  float decayVtxY;
+  float decayVtxZ;
+  std::array<float, 3> decayMom;
+  float mMass;
+  float mPt;
+  float mTopoChi2;
+  float mGeoChi2;
 };
 
 } // namespace dataformats
