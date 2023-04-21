@@ -499,10 +499,10 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   }
 
   // get vertex position and chi2 of refitted track
-  mStrangeTrack.decayVtx = mFitter3Body.getPCACandidatePos();
-  mStrangeTrack.decayVtxX = mStrangeTrack.decayVtx[0];
-  mStrangeTrack.decayVtxY = mStrangeTrack.decayVtx[1];
-  mStrangeTrack.decayVtxZ = mStrangeTrack.decayVtx[2];
+  mStrangeTrack.mDecayVtx = mFitter3Body.getPCACandidatePos();
+  mStrangeTrack.decayVtxX = mStrangeTrack.mDecayVtx[0];
+  mStrangeTrack.decayVtxY = mStrangeTrack.mDecayVtx[1];
+  mStrangeTrack.decayVtxZ = mStrangeTrack.mDecayVtx[2];
   mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
   
   mStrangeTrackKF.decayVtxX = mResettedMotherTrackKF.GetX();

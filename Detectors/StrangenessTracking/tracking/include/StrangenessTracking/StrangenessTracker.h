@@ -266,6 +266,7 @@ class StrangenessTracker
 
   std::vector<o2::track::TrackParCovF> mDaughterTracks; // vector of daughter tracks
   StrangeTrack mStrangeTrack;                           // structure containing updated mother and daughter track refs
+  StrangeTrackKF mStrangeTrackKF;                       // KF regitted mother track
   ClusAttachments mStructClus;                          // # of attached tracks, 1 for mother, 2 for daughter
   o2::its::TrackITS mITStrack;                          // ITS track
   std::array<GIndex, 2> mV0dauIDs;                      // V0 daughter IDs
