@@ -42,21 +42,15 @@ struct StrangeTrack {
   float mITSClusSize;
   float mMatchChi2;
   float mTopoChi2;
-};
-
-struct StrangeTrackKF {
-  kPartType mPartType;
-  o2::track::TrackParCovF mMother;
-  int mITSRef = -1;
-  int mDecayRef = -1;
-  float decayVtxX;
-  float decayVtxY;
-  float decayVtxZ;
-  std::array<float, 3> decayMom;
-  float mMass;
-  float mPt;
-  float mTopoChi2;
-  float mGeoChi2;
+  // KF variables
+  kPartType mPartTypeKF;
+  float decayVtxXKF;
+  float decayVtxYKF;
+  float decayVtxZKF;
+  float mPtKF;
+  float mMassKF;
+  float mTopoChi2KF;
+  float mGeoChi2KF;
 };
 
 } // namespace dataformats

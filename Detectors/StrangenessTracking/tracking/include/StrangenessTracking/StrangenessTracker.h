@@ -62,7 +62,6 @@ class StrangenessTracker
 {
  public:
   using StrangeTrack = o2::dataformats::StrangeTrack;
-  using StrangeTrackKF = o2::dataformats::StrangeTrackKF;
   using PID = o2::track::PID;
   using TrackITS = o2::its::TrackITS;
   using ITSCluster = o2::BaseCluster<float>;
@@ -86,7 +85,6 @@ class StrangenessTracker
 
   std::vector<ClusAttachments>& getClusAttachments() { return mClusAttachments; };
   std::vector<StrangeTrack>& getStrangeTrackVec() { return mStrangeTrackVec; };
-  std::vector<StrangeTrackKF>& getStrangeTrackVecKF() { return mStrangeTrackKFVec; };
   std::vector<o2::MCCompLabel>& getStrangeTrackLabels() { return mStrangeTrackLabels; };
 
   float getBz() const { return mBz; }
@@ -101,7 +99,6 @@ class StrangenessTracker
     mDaughterTracks.clear();
     mClusAttachments.clear();
     mStrangeTrackVec.clear();
-    mStrangeTrackKFVec.clear();
     mTracksIdxTable.clear();
     mSortedITStracks.clear();
     mSortedITSindexes.clear();
@@ -251,7 +248,6 @@ class StrangenessTracker
   IndexTableUtils mUtils;                          // structure for computing eta/phi matching selections
 
   std::vector<StrangeTrack> mStrangeTrackVec;       // structure containing updated mother and daughter tracks
-  std::vector<StrangeTrackKF> mStrangeTrackKFVec;   // structure containing updated mother and daughter tracks with KF
   std::vector<ClusAttachments> mClusAttachments;    // # of attached tracks, -1 not attached, 0 for the mother, > 0 for the daughters
   std::vector<o2::MCCompLabel> mStrangeTrackLabels; // vector of MC labels for mother track
 
@@ -266,7 +262,6 @@ class StrangenessTracker
 
   std::vector<o2::track::TrackParCovF> mDaughterTracks; // vector of daughter tracks
   StrangeTrack mStrangeTrack;                           // structure containing updated mother and daughter track refs
-  StrangeTrackKF mStrangeTrackKF;                       // KF regitted mother track
   ClusAttachments mStructClus;                          // # of attached tracks, 1 for mother, 2 for daughter
   o2::its::TrackITS mITStrack;                          // ITS track
   std::array<GIndex, 2> mV0dauIDs;                      // V0 daughter IDs

@@ -148,7 +148,7 @@ void StrangenessTracker::process()
     }
 
     mStrangeTrack.mPartType = dataformats::kStrkV0;
-    mStrangeTrackKF.mPartType = dataformats::kStrkV0;
+    mStrangeTrack.mPartTypeKF = dataformats::kStrkV0;
 
     auto v0R2 = v0.calcR2();
     auto iBinsV0 = mUtils.getBinRect(correctedV0.getEta(), correctedV0.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
@@ -191,7 +191,6 @@ void StrangenessTracker::process()
           mStrangeTrack.mDecayRef = iV0;
           mStrangeTrack.mITSRef = mSortedITSindexes[iTrack];
           mStrangeTrackVec.push_back(mStrangeTrack);
-          mStrangeTrackKFVec.push_back(mStrangeTrackKF);
           mClusAttachments.push_back(mStructClus);
           if (mMCTruthON) {
             auto lab = getStrangeTrackLabel();
@@ -213,6 +212,7 @@ void StrangenessTracker::process()
     mV0dauIDs[0] = cascV0.getProngID(0), mV0dauIDs[1] = cascV0.getProngID(1);
 
     mStrangeTrack.mPartType = dataformats::kStrkCascade;
+    mStrangeTrack.mPartTypeKF = dataformats::kStrkCascade;
     // first: bachelor, second: V0 pos, third: V0 neg
     auto cascR2 = casc.calcR2();
     auto iBinsCasc = mUtils.getBinRect(casc.getEta(), casc.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
@@ -252,7 +252,6 @@ void StrangenessTracker::process()
           mStrangeTrack.mDecayRef = iCasc;
           mStrangeTrack.mITSRef = mSortedITSindexes[iTrack];
           mStrangeTrackVec.push_back(mStrangeTrack);
-          mStrangeTrackKFVec.push_back(mStrangeTrackKF);
           mClusAttachments.push_back(mStructClus);
           if (mMCTruthON) {
             auto lab = getStrangeTrackLabel();
@@ -505,12 +504,12 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   mStrangeTrack.decayVtxZ = mStrangeTrack.mDecayVtx[2];
   mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
   
-  mStrangeTrackKF.decayVtxX = mResettedMotherTrackKF.GetX();
-  mStrangeTrackKF.decayVtxY = mResettedMotherTrackKF.GetY();
-  mStrangeTrackKF.decayVtxY = mResettedMotherTrackKF.GetZ();
-  mStrangeTrackKF.mGeoChi2 = mResettedMotherTrackKF.GetChi2();
-  mStrangeTrackKF.mMass = mResettedMotherTrackKF.GetMass();
-  mStrangeTrackKF.mPt = mResettedMotherTrackKF.GetPt();
+  mStrangeTrack.decayVtxX = mResettedMotherTrackKF.GetX();
+  mStrangeTrack.decayVtxY = mResettedMotherTrackKF.GetY();
+  mStrangeTrack.decayVtxY = mResettedMotherTrackKF.GetZ();
+  mStrangeTrack.mGeoChi2KF = mResettedMotherTrackKF.GetChi2();
+  mStrangeTrack.mMassKF = mResettedMotherTrackKF.GetMass();
+  mStrangeTrack.mPtKF = mResettedMotherTrackKF.GetPt();
   mStructClus.arr = nAttachments;
 
   return true;

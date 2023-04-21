@@ -39,7 +39,6 @@ namespace strangeness_tracking
 {
 
 using StrangeTrack = o2::dataformats::StrangeTrack;
-using StrangeTrackKF = o2::dataformats::StrangeTrackKF;
 using DataRequest = o2::globaltracking::DataRequest;
 
 StrangenessTrackerSpec::StrangenessTrackerSpec(std::shared_ptr<DataRequest> dr, std::shared_ptr<o2::base::GRPGeomRequest> gr, bool isMC) : mDataRequest{dr}, mGGCCDBRequest(gr), mUseMC{isMC}
@@ -77,7 +76,6 @@ void StrangenessTrackerSpec::run(framework::ProcessingContext& pc)
   mTracker.prepareITStracks();
   mTracker.process();
   pc.outputs().snapshot(Output{"STK", "STRTRACKS", 0, Lifetime::Timeframe}, mTracker.getStrangeTrackVec());
-  pc.outputs().snapshot(Output{"STK", "STRTRACKSKF", 0, Lifetime::Timeframe}, mTracker.getStrangeTrackVecKF());
   pc.outputs().snapshot(Output{"STK", "CLUSUPDATES", 0, Lifetime::Timeframe}, mTracker.getClusAttachments());
 
   if (mUseMC) {
@@ -141,7 +139,6 @@ DataProcessorSpec getStrangenessTrackerSpec(o2::dataformats::GlobalTrackID::mask
 
   std::vector<OutputSpec> outputs;
   outputs.emplace_back("STK", "STRTRACKS", 0, Lifetime::Timeframe);
-  outputs.emplace_back("STK", "STRTRACKSKF", 0, Lifetime::Timeframe);
   outputs.emplace_back("STK", "CLUSUPDATES", 0, Lifetime::Timeframe);
   if (useMC) {
     outputs.emplace_back("STK", "STRK_MC", 0, Lifetime::Timeframe);

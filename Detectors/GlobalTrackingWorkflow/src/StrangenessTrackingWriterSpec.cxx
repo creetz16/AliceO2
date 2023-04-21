@@ -29,7 +29,6 @@ namespace o2
 namespace strangeness_tracking
 {
 using StrangeTrack = dataformats::StrangeTrack;
-using StrangeTrackKF = dataformats::StrangeTrackKF;
 
 template <typename T>
 using BranchDefinition = MakeRootTreeWriterSpec::BranchDefinition<T>;
@@ -43,7 +42,6 @@ DataProcessorSpec getStrangenessTrackingWriterSpec(bool useMC)
   };
 
   auto inpStTrkID = InputSpec{"strangetracks", "STK", "STRTRACKS", 0};
-  auto inpStTrkIDKF = InputSpec{"strangetrackskf", "STK", "STRTRACKSKF", 0};
   auto inpClusAtt = InputSpec{"clusupdates", "STK", "CLUSUPDATES", 0};
   auto inpMCLab = InputSpec{"stkmclabels", "STK", "STRK_MC", 0};
 
@@ -51,7 +49,6 @@ DataProcessorSpec getStrangenessTrackingWriterSpec(bool useMC)
                                 "o2_strange_tracks.root",
                                 MakeRootTreeWriterSpec::TreeAttributes{"o2sim", "Tree with Strange Tracks"},
                                 BranchDefinition<std::vector<StrangeTrack>>{inpStTrkID, "StrangeTracks", loggerV},
-                                BranchDefinition<std::vector<StrangeTrackKF>>{inpStTrkIDKF, "StrangeTracksKF"},
                                 BranchDefinition<std::vector<o2::strangeness_tracking::ClusAttachments>>{inpClusAtt, "ClusUpdates"},
                                 BranchDefinition<LabelsType>{inpMCLab, "StrangeTrackMCLab", (useMC ? 1 : 0), ""} // one branch if mc labels enabled
                                 )();
