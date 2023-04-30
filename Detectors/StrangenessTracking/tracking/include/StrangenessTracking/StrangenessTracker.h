@@ -37,6 +37,17 @@
 #include "DCAFitter/DCAFitterN.h"
 #include "DetectorsBase/Propagator.h"
 
+#ifndef HomogeneousField
+#define HomogeneousField
+#endif
+
+/// includes KFParticle
+#include "KFParticle.h"
+#include "KFPTrack.h"
+#include "KFPVertex.h"
+#include "KFParticleBase.h"
+#include "KFVertex.h"
+
 namespace o2
 {
 namespace strangeness_tracking
@@ -260,6 +271,9 @@ class StrangenessTracker
   ClusAttachments mStructClus;                          // # of attached tracks, 1 for mother, 2 for daughter
   o2::its::TrackITS mITStrack;                          // ITS track
   std::array<GIndex, 2> mV0dauIDs;                      // V0 daughter IDs
+  o2::track::TrackParCovF mResettedMotherTrack;         // mother track
+  KFParticle mResettedMotherTrackKF;                    // mother track from KF
+  KFParticle mResettedMotherTrackKF_wMassConstLam;      // mother track from KF with mass contraint on Lambda
 
   ClassDefNV(StrangenessTracker, 1);
 };
