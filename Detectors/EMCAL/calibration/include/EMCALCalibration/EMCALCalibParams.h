@@ -37,7 +37,7 @@ struct EMCALCalibParams : public o2::conf::ConfigurableParamHelper<EMCALCalibPar
   bool enableTestMode_bc = false;       ///< enable test mode for calibration
   int nBinsEnergyAxis_bc = 1000;        ///< number of bins for boost histogram energy axis
   bool useTimeInfoForCalib_bc = true;   ///< weather to use the timing information as a criterion in the bad channel analysis
-  float maxValueEnergyAxis_bc = 10;     ///< maximum value for boost histogram energy axis (minimum is always 0)
+  float maxValueEnergyAxis_bc = 40;     ///< maximum value for boost histogram energy axis (minimum is always 0)
   int nBinsTimeAxis_bc = 1000;          ///< number of bins for boost histogram time axis
   float rangeTimeAxisLow_bc = -500;     ///< minimum value of time for histogram range
   float rangeTimeAxisHigh_bc = 500;     ///< maximum value of time for histogram range
@@ -47,6 +47,7 @@ struct EMCALCalibParams : public o2::conf::ConfigurableParamHelper<EMCALCalibPar
   bool UpdateAtEndOfRunOnly_bc = false; ///< switch to enable trigger of calibration only at end of run
   float minNHitsForMeanEnergyCut = 100; ///< mean number of hits per cell that is needed to cut on the mean energy per hit. Needed for high energy intervals as outliers can distort the distribution
   float minNHitsForNHitCut = 1;         ///< mean number of hits per cell that is needed to cut on the mean number of hits. Needed for high energy intervals as outliers can distort the distribution
+  float minCellEnergy_bc = 0.075;       ///< minimum cell energy considered for filling the histograms for bad channel calib. Should speedup the filling of the histogram to suppress noise
 
   // parameters for time calibration
   unsigned int minNEvents_tc = 1e7;      ///< minimum number of events to trigger the calibration
