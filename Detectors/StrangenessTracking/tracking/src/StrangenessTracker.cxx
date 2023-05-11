@@ -425,6 +425,8 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     KFParticle kfpDaughter0 = createKFParticleFromTrackParCov(mDaughterTracks[0], mDaughterTracks[0].getSign(), massPion); // bachelor
     const KFParticle* CascDaugthers[2] = {&kfpDaughter0, &cascV0KF};
     const KFParticle* CascDaugthers_wMassConstLambda[2] = {&kfpDaughter0, &cascV0KF_wMassConst};
+    float kfpDaughter0_mass = kfpDaughter0.GetMass();
+    float kfpDaughter1_mass = cascV0KF.GetMass();
     // construct mother
     cascKF.SetConstructMethod(2);
     cascKF.Construct(CascDaugthers, nCascDaughters);
@@ -438,6 +440,8 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       KFParticle kfpDaughter0 = createKFParticleFromTrackParCov(mDaughterTracks[0], mDaughterTracks[0].getSign(), massKaon); // bachelor
       const KFParticle* CascDaugthers[2] = {&kfpDaughter0, &cascV0KF};
       const KFParticle* CascDaugthers_wMassConstLambda[2] = {&kfpDaughter0, &cascV0KF_wMassConst};
+      float kfpDaughter0_mass = kfpDaughter0.GetMass();
+      float kfpDaughter1_mass = cascV0KF.GetMass();
       // construct mother
       cascKF.SetConstructMethod(2);
       cascKF.Construct(CascDaugthers, nCascDaughters);
@@ -491,6 +495,8 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     KFParticle kfpDaughter0 = createKFParticleFromTrackParCov(mDaughterTracks[0], mDaughterTracks[0].getSign(), massPosDaughter); // prong 1 (pos)
     KFParticle kfpDaughter1 = createKFParticleFromTrackParCov(mDaughterTracks[1], mDaughterTracks[1].getSign(), massNegDaughter); // prong 2 (neg)
     const KFParticle* V0Daughters[2] = {&kfpDaughter0, &kfpDaughter1};
+    float kfpDaughter0_mass = kfpDaughter0.GetMass();
+    float kfpDaughter1_mass = kfpDaughter1.GetMass();
     // construct mother
     V0KF.SetConstructMethod(2);
     V0KF.Construct(V0Daughters, nV0Daughters);
@@ -506,12 +512,15 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   mStrangeTrack.decayVtxZ = mStrangeTrack.mDecayVtx[2];
   mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
   
-  mStrangeTrack.decayVtxX = mResettedMotherTrackKF.GetX();
-  mStrangeTrack.decayVtxY = mResettedMotherTrackKF.GetY();
-  mStrangeTrack.decayVtxY = mResettedMotherTrackKF.GetZ();
+  mStrangeTrack.decayVtxXKF = mResettedMotherTrackKF.GetX();
+  mStrangeTrack.decayVtxYKF = mResettedMotherTrackKF.GetY();
+  mStrangeTrack.decayVtxZKF = mResettedMotherTrackKF.GetZ();
   mStrangeTrack.mGeoChi2KF = mResettedMotherTrackKF.GetChi2();
   mStrangeTrack.mMassKF = mResettedMotherTrackKF.GetMass();
   mStrangeTrack.mPtKF = mResettedMotherTrackKF.GetPt();
+  mStrangeTrack.V0daughter0massKF = kfpDaughter0_mass; // bachelor (cascade) or pos daughter (V0)
+  mStrangeTrack.V0daughter1massKF = kfpDaughter1_mass; // V0 (cascade) or neg daughter (V0)
+
   mStructClus.arr = nAttachments;
 
   return true;
