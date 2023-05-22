@@ -51,8 +51,8 @@ struct StrangeTrack {
   std::array<float, 2> mMassesKF; // V0: hypertriton and hyperhydrogen4, cascade: Xi and Omega.
   float mTopoChi2KF;
   float mGeoChi2KF;
-  float kfpDauPosMass; // proton or pion
-  float kfpDauNegMass; // proton or pion
+  float kfpDauPosMass; // V0: pion or 3He, cascade: proton or pion
+  float kfpDauNegMass; // V0: pion or 3He, cascade: proton or pion
   float kfpBachelorMass; // pion or kaon
   float kfpCascV0Mass; // Lambda
   float kfpCascV0MassConst; // Lambda with mass const.
