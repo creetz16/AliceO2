@@ -43,12 +43,11 @@ struct StrangeTrack {
   float mMatchChi2;
   float mTopoChi2;
   // KF variables
-  kPartType mPartTypeKF;
   float decayVtxXKF;
   float decayVtxYKF;
   float decayVtxZKF;
   float mPtKF;
-  std::array<float, 2> mMassesKF; // V0: hypertriton and hyperhydrogen4, cascade: Xi and Omega.
+  std::array<float, 4> mMassesKF; // V0: hypertriton and hyperhydrogen4, cascade: Xi and Omega.
   float mTopoChi2KF;
   float mGeoChi2KF;
   float kfpDauPosMass; // V0: pion or 3He, cascade: proton or pion
