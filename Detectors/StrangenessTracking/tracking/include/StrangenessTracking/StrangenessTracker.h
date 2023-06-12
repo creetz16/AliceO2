@@ -242,6 +242,86 @@ class StrangenessTracker
     return itsTrkLab;
   }
 
+  template <typename T>
+  KFParticle createKFParticleFromTrackParCov(const o2::track::TrackParametrizationWithError<T>& trackparCov, int charge, float mass) 
+  {
+    std::array<T, 3> xyz, pxpypz;
+    float xyzpxpypz[6];
+    trackparCov.getPxPyPzGlo(pxpypz);
+    trackparCov.getXYZGlo(xyz);
+    for (int i{0}; i < 3; ++i) {
+      xyzpxpypz[i] = xyz[i];
+      xyzpxpypz[i + 3] = pxpypz[i];
+    }
+
+    std::array<float, 21> cv;
+    try {
+      trackparCov.getCovXYZPxPyPzGlo(cv);
+    } catch (std::runtime_error& e) {
+      LOG(debug) << "Failed to get cov matrix from TrackParCov" << e.what();
+    }
+
+    KFParticle kfPart;
+    float Mini, SigmaMini, M, SigmaM;
+    kfPart.GetMass(Mini, SigmaMini);
+    LOG(info) << "Daughter KFParticle mass before creation: " << Mini << " +- " << SigmaMini;
+    
+    try {
+      kfPart.Create(xyzpxpypz, cv.data(), charge, mass);
+    } catch (std::runtime_error& e) {
+      LOG(debug) << "Failed to create KFParticle from daughter TrackParCov" << e.what();
+    }
+
+    kfPart.GetMass(M, SigmaM);
+    LOG(info) << "Daughter KFParticle mass after creation: " << M << " +- " << SigmaM;
+
+    return kfPart;
+  }
+
+  bool getTrackParCovFromKFP(const TrackITS& itsTrack, const KFParticle& kfTrack, const PID pid, const int sign, o2::track::TrackParCovF track)
+  {
+    auto geom = o2::its::GeometryTGeo::Instance();
+    auto propInstance = o2::base::Propagator::Instance();
+    float x = itsTrack.getX();
+    int layer{geom->getLayer(itsTrack.getFirstClusterLayer())};
+
+    o2::gpu::gpustd::array<float, 3> xyz, pxpypz;
+    o2::gpu::gpustd::array<float, 21> cv;
+
+    // get parameters from kfTrack
+    xyz[0] = kfTrack.GetX();
+    xyz[1] = kfTrack.GetY();
+    xyz[2] = kfTrack.GetZ();
+    pxpypz[0] = kfTrack.GetPx();
+    pxpypz[1] = kfTrack.GetPy();
+    pxpypz[2] = kfTrack.GetPz();
+    
+    // set covariance matrix elements (lower triangle)
+    for (int i =0; i < 21; i++) {
+      cv[i] = kfTrack.GetCovariance(i);
+    }
+
+    // create TrackParCov track
+    track = o2::track::TrackParCovF(xyz, pxpypz, cv, sign, true, pid);
+
+    // transport to IU
+    if (!propInstance->propagateToX(track, x, getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
+      return false;
+    }
+    // apply material correction
+    if (mCorrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
+      float thick = layer < 3 ? 0.005 : 0.01;
+      constexpr float radl = 9.36f; // Radiation length of Si [cm]
+      constexpr float rho = 2.33f;  // Density of Si [g/cm^3]
+      if (!track.correctForMaterial(thick, thick * rho * radl)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+
  protected:
   bool mMCTruthON = false;                      /// flag availability of MC truth
   gsl::span<const TrackITS> mInputITStracks;    // input ITS tracks
@@ -272,14 +352,15 @@ class StrangenessTracker
 
   o2::base::PropagatorImpl<float>::MatCorrType mCorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE; // use mat correction
 
-  std::vector<o2::track::TrackParCovF> mDaughterTracks; // vector of daughter tracks
-  StrangeTrack mStrangeTrack;                           // structure containing updated mother and daughter track refs
-  ClusAttachments mStructClus;                          // # of attached tracks, 1 for mother, 2 for daughter
-  o2::its::TrackITS mITStrack;                          // ITS track
-  std::array<GIndex, 2> mV0dauIDs;                      // V0 daughter IDs
-  o2::track::TrackParCovF mResettedMotherTrack;         // mother track
-  KFParticle mResettedMotherTrackKF;                    // mother track from KF
-  KFParticle mResettedMotherTrackKF_wMassConstLam;      // mother track from KF with mass contraint on Lambda
+  std::vector<o2::track::TrackParCovF> mDaughterTracks;  // vector of daughter tracks
+  StrangeTrack mStrangeTrack;                            // structure containing updated mother and daughter track refs
+  ClusAttachments mStructClus;                           // # of attached tracks, 1 for mother, 2 for daughter
+  o2::its::TrackITS mITStrack;                           // ITS track
+  std::array<GIndex, 2> mV0dauIDs;                       // V0 daughter IDs
+  o2::track::TrackParCovF mResettedMotherTrack;          // mother track
+  o2::track::TrackParCovF mResettedMotherTrackKFtrackIU; // mother track from KF at the IU
+  KFParticle mResettedMotherTrackKF;                     // mother track from KF at decay vertex
+  KFParticle mResettedMotherTrackKF_wMassConstLam;       // mother track from KF with mass contraint on Lambda
 
   ClassDefNV(StrangenessTracker, 1);
 };
