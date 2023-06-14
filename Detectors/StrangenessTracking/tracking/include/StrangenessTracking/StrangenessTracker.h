@@ -151,31 +151,91 @@ class StrangenessTracker
     return std::sqrt(e2Mother - p2Mother);
   }
 
-  bool recreateV0(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, V0& newV0)
+  bool createKFV0(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack)
   {
 
-    int nCand;
+    float massPosDaughter, massNegDaughter;
+    if (posTrack.getAbsCharge() == 2) { // if charge of positive daughter is two, it is 3He
+      massPosDaughter = o2::constants::physics::MassHelium3;
+      massNegDaughter = o2::constants::physics::MassPionCharged;
+      LOG(info) << "posTrack.getAbsCharge() == 2";
+    } else {
+      massPosDaughter = o2::constants::physics::MassPionCharged;
+      massNegDaughter = o2::constants::physics::MassHelium3;
+      LOG(info) << "posTrack.getAbsCharge() =|= 2";
+    }
+
+    int nV0Daughters = 2;
+    // create KFParticle objects from trackParCovs
+    KFParticle kfpDauPos = createKFParticleFromTrackParCov(posTrack, posTrack.getCharge(), massPosDaughter);
+    KFParticle kfpDauNeg = createKFParticleFromTrackParCov(negTrack, negTrack.getCharge(), massNegDaughter);
+    const KFParticle* V0Daughters[2] = {&kfpDauPos, &kfpDauNeg};
+
+    // construct mother
+    KFParticle KFV0;
+    KFV0.SetConstructMethod(2);
     try {
-      nCand = mFitterV0.process(posTrack, negTrack);
+      KFV0.Construct(V0Daughters, nV0Daughters);
     } catch (std::runtime_error& e) {
+      LOG(debug) << "Failed to create KFParticle V0 from daughter tracks." << e.what();
       return false;
     }
-    if (!nCand || !mFitterV0.propagateTracksToVertex()) {
-      return false;
-    }
+    kfpMother = KFV0;
+    kfpMother.TransportToDecayVertex();
 
-    const auto& v0XYZ = mFitterV0.getPCACandidatePos();
-
-    auto& propPos = mFitterV0.getTrack(0, 0);
-    auto& propNeg = mFitterV0.getTrack(1, 0);
-
-    std::array<float, 3> pP, pN;
-    propPos.getPxPyPzGlo(pP);
-    propNeg.getPxPyPzGlo(pN);
-    std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
-    newV0 = V0(v0XYZ, pV0, mFitterV0.calcPCACovMatrixFlat(0), propPos, propNeg, mV0dauIDs[kV0DauPos], mV0dauIDs[kV0DauNeg], PID::HyperTriton);
     return true;
   };
+
+  bool createKFCascade(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, const o2::track::TrackParCov& bachTrack)
+    {
+
+      float massPosDaughter, massNegDaughter;
+      if (bachTrack.getCharge() < 0) { // if bachelor charge negative, cascade is a Xi- --> Lam + pi- --> (p+ + pi-) + pi-   OR   Omega- --> Lam + K- --> (p+ + pi-) + K-
+        massPosDaughter = o2::constants::physics::MassProton;
+        massNegDaughter = o2::constants::physics::MassPionCharged;
+        LOG(info) << "bachTrack.getCharge() < 0";
+      }  else { // if bachelor charge positive, cascade is a Xi+ --> Lam + pi+ --> (p- + pi+) + pi+  OR   Omega+ --> Lam + K+ --> (p- + pi+) + K+
+        massPosDaughter = o2::constants::physics::MassPionCharged;
+        massNegDaughter = o2::constants::physics::MassProton;
+        LOG(info) << "bachTrack.getCharge() >= 0";
+      }
+
+      int nV0Daughters = 2;
+      // create KFParticle objects from trackParCovs
+      KFParticle kfpDauPos = createKFParticleFromTrackParCov(posTrack, posTrack.getCharge(), massPosDaughter);
+      KFParticle kfpDauNeg = createKFParticleFromTrackParCov(negTrack, negTrack.getCharge(), massNegDaughter);
+      const KFParticle* V0Daughters[2] = {&kfpDauPos, &kfpDauNeg};
+
+      // construct V0
+      KFParticle KFV0;
+      KFV0.SetConstructMethod(2);
+      try {
+        KFV0.Construct(V0Daughters, nV0Daughters);
+      } catch (std::runtime_error& e) {
+        LOG(debug) << "Failed to construct cascade V0 from daughter tracks: " << e.what();
+        return false;
+      }
+      KFV0.SetNonlinearMassConstraint(o2::constants::physics::MassLambda);
+
+      int nCascDaughters = 2;
+      // create KFParticle objects from trackParCovs
+      KFParticle kfpBach = createKFParticleFromTrackParCov(bachTrack, bachTrack.getCharge(), o2::constants::physics::MassPionCharged);
+      const KFParticle* CascDaugthers[2] = {&kfpBach, &KFV0};
+
+      // construct mother
+      KFParticle KFCasc;
+      KFCasc.SetConstructMethod(2);
+      try {
+        KFCasc.Construct(CascDaugthers, nCascDaughters);
+      } catch (std::runtime_error& e) {
+        LOG(debug) << "Failed to construct cascade from V0 and bachelor track: " << e.what();
+        return false;
+      }
+      KFCasc.TransportToDecayVertex();
+      kfpMother = KFCasc;
+
+      return true;
+    };
 
   std::vector<ITSCluster> getTrackClusters()
   {
@@ -264,7 +324,7 @@ class StrangenessTracker
     KFParticle kfPart;
     float Mini, SigmaMini, M, SigmaM;
     kfPart.GetMass(Mini, SigmaMini);
-    LOG(info) << "Daughter KFParticle mass before creation: " << Mini << " +- " << SigmaMini;
+    LOG(debug) << "Daughter KFParticle mass before creation: " << Mini << " +- " << SigmaMini;
     
     try {
       kfPart.Create(xyzpxpypz, cv.data(), charge, mass);
@@ -273,42 +333,52 @@ class StrangenessTracker
     }
 
     kfPart.GetMass(M, SigmaM);
-    LOG(info) << "Daughter KFParticle mass after creation: " << M << " +- " << SigmaM;
+    LOG(debug) << "Daughter KFParticle mass after creation: " << M << " +- " << SigmaM;
 
     return kfPart;
   }
 
-  bool getTrackParCovFromKFP(const TrackITS& itsTrack, const KFParticle& kfTrack, const PID pid, const int sign, o2::track::TrackParCovF track)
+  bool getTrackParCovFromKFP(const KFParticle& kfParticle, const PID pid, const int sign, o2::track::TrackParCovF& track)
   {
-    auto geom = o2::its::GeometryTGeo::Instance();
-    auto propInstance = o2::base::Propagator::Instance();
-    float x = itsTrack.getX();
-    int layer{geom->getLayer(itsTrack.getFirstClusterLayer())};
-
+    
     o2::gpu::gpustd::array<float, 3> xyz, pxpypz;
     o2::gpu::gpustd::array<float, 21> cv;
 
-    // get parameters from kfTrack
-    xyz[0] = kfTrack.GetX();
-    xyz[1] = kfTrack.GetY();
-    xyz[2] = kfTrack.GetZ();
-    pxpypz[0] = kfTrack.GetPx();
-    pxpypz[1] = kfTrack.GetPy();
-    pxpypz[2] = kfTrack.GetPz();
+    // get parameters from kfParticle
+    xyz[0] = kfParticle.GetX();
+    xyz[1] = kfParticle.GetY();
+    xyz[2] = kfParticle.GetZ();
+    pxpypz[0] = kfParticle.GetPx();
+    pxpypz[1] = kfParticle.GetPy();
+    pxpypz[2] = kfParticle.GetPz();
     
     // set covariance matrix elements (lower triangle)
     for (int i =0; i < 21; i++) {
-      cv[i] = kfTrack.GetCovariance(i);
+      cv[i] = kfParticle.GetCovariance(i);
     }
 
     // create TrackParCov track
     track = o2::track::TrackParCovF(xyz, pxpypz, cv, sign, true, pid);
 
-    // transport to IU
+    return true;
+  }
+
+  bool propagateToOuterParam(const TrackITS& itsTrack, o2::track::TrackParCovF& track)
+  {
+    auto geom = o2::its::GeometryTGeo::Instance();
+    auto propInstance = o2::base::Propagator::Instance();
+    float x = itsTrack.getParamOut().getX();
+    int layer{geom->getLayer(itsTrack.getFirstClusterLayer())};
+    if (!track.rotate(itsTrack.getParamOut().getAlpha())) {
+        return false;
+    }
+
+    // transport to OuterParam
     if (!propInstance->propagateToX(track, x, getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
       return false;
     }
-    // apply material correction
+
+    // apply material correction 
     if (mCorrType == o2::base::PropagatorF::MatCorrType::USEMatCorrNONE) {
       float thick = layer < 3 ? 0.005 : 0.01;
       constexpr float radl = 9.36f; // Radiation length of Si [cm]
@@ -322,7 +392,7 @@ class StrangenessTracker
   }
 
 
- protected:
+ protected: 
   bool mMCTruthON = false;                      /// flag availability of MC truth
   gsl::span<const TrackITS> mInputITStracks;    // input ITS tracks
   std::vector<VBracket> mITSvtxBrackets;        // time brackets for ITS tracks
@@ -357,10 +427,7 @@ class StrangenessTracker
   ClusAttachments mStructClus;                           // # of attached tracks, 1 for mother, 2 for daughter
   o2::its::TrackITS mITStrack;                           // ITS track
   std::array<GIndex, 2> mV0dauIDs;                       // V0 daughter IDs
-  o2::track::TrackParCovF mResettedMotherTrack;          // mother track
-  o2::track::TrackParCovF mResettedMotherTrackKFtrackIU; // mother track from KF at the IU
-  KFParticle mResettedMotherTrackKF;                     // mother track from KF at decay vertex
-  KFParticle mResettedMotherTrackKF_wMassConstLam;       // mother track from KF with mass contraint on Lambda
+  KFParticle kfpMother;                                  // mother KFParticle
 
   ClassDefNV(StrangenessTracker, 1);
 };

@@ -34,29 +34,14 @@ struct StrangeTrack {
   unsigned int mITSRef = -1;
   unsigned int mDecayRef = -1;
   std::array<float, 3> mDecayVtx;
-  float decayVtxX;
-  float decayVtxY;
-  float decayVtxZ;
   std::array<float, 3> mDecayMom;
+  std::array<float, 3> mIUMom;
+  float mDecayPt;
   std::array<float, 2> mMasses; // V0: hypertriton and hyperhydrogen4, cascade: Xi and Omega.
   float mITSClusSize;
   float mMatchChi2;
   float mTopoChi2;
-  // KF variables
-  o2::track::TrackParCovF mMotherKF;
-  float decayVtxXKF;
-  float decayVtxYKF;
-  float decayVtxZKF;
-  float mDecayPtKF;
-  std::array<float, 3> mIUMomKF;
-  std::array<float, 2> mMassesKF; // V0: hypertriton and hyperhydrogen4, cascade: Xi and Omega.
-  float mTopoChi2KF;
-  float mGeoChi2KF;
-  float kfpDauPosMass; // V0: pion or 3He, cascade: proton or pion
-  float kfpDauNegMass; // V0: pion or 3He, cascade: proton or pion
-  float kfpBachelorMass; // pion or kaon
-  float kfpCascV0Mass; // Lambda
-  float kfpCascV0MassConst; // Lambda with mass const.
+  float mGeoChi2;
 };
 
 } // namespace dataformats

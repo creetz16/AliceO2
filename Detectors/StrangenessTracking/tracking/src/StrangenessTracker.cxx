@@ -116,16 +116,23 @@ void StrangenessTracker::process()
   for (int iV0{0}; iV0 < mInputV0tracks.size(); iV0++) {
     LOG(debug) << "Analysing V0: " << iV0 + 1 << "/" << mInputV0tracks.size();
     auto& v0 = mInputV0tracks[iV0];
-    mV0dauIDs[kV0DauPos] = v0.getProngID(kV0DauPos), mV0dauIDs[kV0DauNeg] = v0.getProngID(kV0DauNeg);
+    mV0dauIDs[kV0DauPos] = v0.getProngID(kV0DauPos);
+    mV0dauIDs[kV0DauNeg] = v0.getProngID(kV0DauNeg);
     auto posTrack = v0.getProng(kV0DauPos);
     auto negTrack = v0.getProng(kV0DauNeg);
     auto alphaV0 = calcV0alpha(v0);
     alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
-    V0 correctedV0; // recompute V0 for Hypertriton
 
-    if (!recreateV0(posTrack, negTrack, correctedV0)) {
+    if (!createKFV0(posTrack, negTrack)) { // reconstruct V0 with KF using Hypertriton PID
       continue;
     }
+
+    o2::track::TrackParCovF correctedV0;
+    if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, alphaV0 > 0 ? 1 : -1, correctedV0)) { // convert KFParticle V0 to TrackParCov object
+        continue;
+    }
+    LOG(info) << "alphaV0 = " << alphaV0;
+    LOG(info) << "correctedV0 charge = " << correctedV0.getCharge();
 
     mStrangeTrack.mPartType = dataformats::kStrkV0;
 
@@ -133,9 +140,8 @@ void StrangenessTracker::process()
     auto iBinsV0 = mUtils.getBinRect(correctedV0.getEta(), correctedV0.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
     for (int& iBinV0 : iBinsV0) {
       for (int iTrack{mTracksIdxTable[iBinV0]}; iTrack < TMath::Min(mTracksIdxTable[iBinV0 + 1], int(mSortedITStracks.size())); iTrack++) {
-        mStrangeTrack.mMother = (o2::track::TrackParCovF)correctedV0;
-        mDaughterTracks[kV0DauPos] = correctedV0.getProng(kV0DauPos);
-        mDaughterTracks[kV0DauNeg] = correctedV0.getProng(kV0DauNeg);
+        mDaughterTracks[kV0DauPos] = posTrack;
+        mDaughterTracks[kV0DauNeg] = negTrack;
         mITStrack = mSortedITStracks[iTrack];
         auto& ITSindexRef = mSortedITSindexes[iTrack];
 
@@ -144,36 +150,41 @@ void StrangenessTracker::process()
           continue;
         }
 
-        if (matchDecayToITStrack(sqrt(v0R2))) {
-
-          auto propInstance = o2::base::Propagator::Instance();
-          o2::track::TrackParCov decayVtxTrackClone = mStrangeTrack.mMother; // clone track and propagate to decay vertex
-          if (!propInstance->propagateToX(decayVtxTrackClone, mStrangeTrack.mDecayVtx[0], getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
-            LOG(debug) << "Mother propagation to decay vertex failed";
+        if (!propagateToOuterParam(mITStrack, correctedV0)) { // propagate V0 to OuterParam of ITS track
             continue;
-          }
+        }
+        mStrangeTrack.mMother = correctedV0; // V0 at OuterParam of ITS track
+        LOG(info) << "correctedV0 charge after propagation = " << correctedV0.getCharge();
 
-          decayVtxTrackClone.getPxPyPzGlo(mStrangeTrack.mDecayMom);
-          std::array<float, 3> momPos, momNeg;
-          mFitter3Body.getTrack(kV0DauPos).getPxPyPzGlo(momPos);
-          mFitter3Body.getTrack(kV0DauNeg).getPxPyPzGlo(momNeg);
-          if (alphaV0 > 0) {
-            mStrangeTrack.mMasses[0] = calcMotherMass(momPos, momNeg, PID::Helium3, PID::Pion); // Hypertriton invariant mass at decay vertex
-            mStrangeTrack.mMasses[1] = calcMotherMass(momPos, momNeg, PID::Alpha, PID::Pion);   // Hyperhydrogen4Lam invariant mass at decay vertex
-          } else {
-            mStrangeTrack.mMasses[0] = calcMotherMass(momPos, momNeg, PID::Helium3, PID::Pion); // Anti-Hypertriton invariant mass at decay vertex
-            mStrangeTrack.mMasses[1] = calcMotherMass(momPos, momNeg, PID::Alpha, PID::Pion);   // Anti-Hyperhydrogen4Lam invariant mass at decay vertex
-          }
+        if (matchDecayToITStrack(sqrt(v0R2))) { // now mother at IU
 
           LOG(debug) << "ITS Track matched with a V0 decay topology ....";
           LOG(debug) << "Number of ITS track clusters attached: " << mITStrack.getNumberOfClusters();
+
+          // get parameters at IU
+          LOG(info) << "V0 mother charge = " << mStrangeTrack.mMother.getCharge();
+          mStrangeTrack.mMother.getPxPyPzGlo(mStrangeTrack.mIUMom);
+
+          // get parameters at decay vertex
+          float M, SigmaM;
+          kfpMother.GetMass(M, SigmaM);
+          mStrangeTrack.mMasses[0] = M;
+          mStrangeTrack.mDecayMom[0] = kfpMother.GetPx();
+          mStrangeTrack.mDecayMom[1] = kfpMother.GetPy();
+          mStrangeTrack.mDecayMom[2] = kfpMother.GetPz();
+          mStrangeTrack.mDecayPt = kfpMother.GetPt();
+          mStrangeTrack.mDecayVtx[0] = kfpMother.GetX();
+          mStrangeTrack.mDecayVtx[1] = kfpMother.GetY();
+          mStrangeTrack.mDecayVtx[2] = kfpMother.GetZ();
+          mStrangeTrack.mGeoChi2 = kfpMother.GetChi2();
+
           mStrangeTrack.mDecayRef = iV0;
           mStrangeTrack.mITSRef = mSortedITSindexes[iTrack];
           mStrangeTrackVec.push_back(mStrangeTrack);
           mClusAttachments.push_back(mStructClus);
           if (mMCTruthON) {
-            auto lab = getStrangeTrackLabel();
-            mStrangeTrackLabels.push_back(lab);
+              auto lab = getStrangeTrackLabel();
+              mStrangeTrackLabels.push_back(lab);
           }
         }
       }
@@ -190,18 +201,30 @@ void StrangenessTracker::process()
     auto& cascV0 = mInputV0tracks[casc.getV0ID()];
     mV0dauIDs[kV0DauPos] = cascV0.getProngID(kV0DauPos);
     mV0dauIDs[kV0DauNeg] = cascV0.getProngID(kV0DauNeg);
+    auto posTrack = cascV0.getProng(kV0DauPos);
+    auto negTrack = cascV0.getProng(kV0DauNeg);
+    auto bachTrack = casc.getBachelorTrack();
+
+    if (!createKFCascade(posTrack, negTrack, bachTrack)) { // reconstruct cascade with KF using XiMinus PID
+      continue;
+    }
+
+    o2::track::TrackParCovF cascade;
+    if (!getTrackParCovFromKFP(kfpMother, PID::XiMinus, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object
+        continue;
+    }
+    LOG(info) << "bachTrack.getCharge() == " << bachTrack.getCharge();
+    LOG(info) << "cascade charge = " << cascade.getCharge();
 
     mStrangeTrack.mPartType = dataformats::kStrkCascade;
 
-    // first: bachelor, second: V0 pos, third: V0 neg
     auto cascR2 = casc.calcR2();
     auto iBinsCasc = mUtils.getBinRect(casc.getEta(), casc.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
     for (int& iBinCasc : iBinsCasc) {
       for (int iTrack{mTracksIdxTable[iBinCasc]}; iTrack < TMath::Min(mTracksIdxTable[iBinCasc + 1], int(mSortedITStracks.size())); iTrack++) {
-        mStrangeTrack.mMother = (o2::track::TrackParCovF)casc;
-        mDaughterTracks[kV0DauPos] = cascV0.getProng(kV0DauPos);
-        mDaughterTracks[kV0DauNeg] = cascV0.getProng(kV0DauNeg);
-        mDaughterTracks[kBach] = casc.getBachelorTrack();
+        mDaughterTracks[kV0DauPos] = posTrack;
+        mDaughterTracks[kV0DauNeg] = negTrack;
+        mDaughterTracks[kBach] = bachTrack;
         mITStrack = mSortedITStracks[iTrack];
         auto& ITSindexRef = mSortedITSindexes[iTrack];
         LOG(debug) << "----------------------";
@@ -213,23 +236,34 @@ void StrangenessTracker::process()
           continue;
         }
 
-        if (matchDecayToITStrack(sqrt(cascR2))) {
-
-          auto propInstance = o2::base::Propagator::Instance();
-          o2::track::TrackParCov decayVtxTrackClone = mStrangeTrack.mMother; // clone track and propagate to decay vertex
-          if (!propInstance->propagateToX(decayVtxTrackClone, mStrangeTrack.mDecayVtx[0], getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
-            LOG(debug) << "Mother propagation to decay vertex failed";
+        if (!propagateToOuterParam(mITStrack, cascade)) { // propagate cascade to OuterParam of ITS track
             continue;
-          }
-          decayVtxTrackClone.getPxPyPzGlo(mStrangeTrack.mDecayMom);
-          std::array<float, 3> momV0, mombach;
-          mFitter3Body.getTrack(0).getPxPyPzGlo(momV0);                                      // V0 momentum at decay vertex
-          mFitter3Body.getTrack(1).getPxPyPzGlo(mombach);                                    // bachelor momentum at decay vertex
-          mStrangeTrack.mMasses[0] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Pion); // Xi invariant mass at decay vertex
-          mStrangeTrack.mMasses[1] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Kaon); // Omega invariant mass at decay vertex
+        }
+        mStrangeTrack.mMother = cascade; // cascade at OuterParam of ITS track
+        LOG(info) << "cascade charge after propagation = " << cascade.getCharge();
+
+        if (matchDecayToITStrack(sqrt(cascR2))) // now mother is at IU
+        { 
 
           LOG(debug) << "ITS Track matched with a Cascade decay topology ....";
           LOG(debug) << "Number of ITS track clusters attached: " << mITStrack.getNumberOfClusters();
+
+          // get parameters at IU
+          LOG(info) << "Cascade mother charge = " << mStrangeTrack.mMother.getCharge();
+          mStrangeTrack.mMother.getPxPyPzGlo(mStrangeTrack.mIUMom);
+
+          // get parameters at decay vertex
+          float M, SigmaM;
+          kfpMother.GetMass(M, SigmaM);
+          mStrangeTrack.mMasses[0] = M;
+          mStrangeTrack.mDecayMom[0] = kfpMother.GetPx();
+          mStrangeTrack.mDecayMom[1] = kfpMother.GetPy();
+          mStrangeTrack.mDecayMom[2] = kfpMother.GetPz();
+          mStrangeTrack.mDecayPt = kfpMother.GetPt();
+          mStrangeTrack.mDecayVtx[0] = kfpMother.GetX();
+          mStrangeTrack.mDecayVtx[1] = kfpMother.GetY();
+          mStrangeTrack.mDecayVtx[2] = kfpMother.GetZ();
+          mStrangeTrack.mGeoChi2 = kfpMother.GetChi2();
 
           mStrangeTrack.mDecayRef = iCasc;
           mStrangeTrack.mITSRef = mSortedITSindexes[iTrack];
@@ -302,314 +336,34 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
         break; // no daughter track updated, stop the loop
       }
       nUpdates++;
+      
     }
     if (nUpdates == nUpdOld) {
       break; // no track updated, stop the loop
+    }
+
+    // construct updated decay vertex with KF
+    if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
+      if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg])) {
+        return false;
+      }
+      if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) { /// TODO: sign fine like this? --> no, not fine like this!
+        return false;
+      }
+    }
+    else if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
+      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach])) {
+        return false;
+      }
+      if (!getTrackParCovFromKFP(kfpMother, PID::XiMinus, mDaughterTracks[kBach].getCharge()<0 ? -1 : 1, mStrangeTrack.mMother)) { /// TODO: sign fine like this?
+        return false;
+      }
     }
   }
 
   if (nUpdates < trackClusters.size() || motherClusters.size() < nMinClusMother) {
     return false;
   }
-
-  o2::track::TrackParCov motherTrackClone = mStrangeTrack.mMother; // clone and reset covariance for final topology refit
-  motherTrackClone.resetCovariance();
-
-  LOG(debug) << "Clusters attached, starting inward-outward refit";
-
-  std::reverse(motherClusters.begin(), motherClusters.end());
-
-  for (auto& clus : motherClusters) {
-    if (!updateTrack(clus, motherTrackClone)) {
-      break;
-    }
-  }
-
-  // compute mother average cluster size
-  mStrangeTrack.mITSClusSize = float(std::accumulate(motherClusSizes.begin(), motherClusSizes.end(), 0)) / motherClusSizes.size();
-
-  LOG(debug) << "Inward-outward refit finished, starting final topology refit";
-  // final Topology refit
-
-  int cand = 0; // best V0 candidate
-  int nCand;
-  int nDauPos;
-
-  // ========== refit cascade ============
-  if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
-
-    /// ======= DCA fitter reconstruction =======
-    // refit cascade
-    V0 cascV0Upd;
-    if (!recreateV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], cascV0Upd)) {
-      LOG(debug) << "Cascade V0 refit failed";
-      return false;
-    }
-    cascV0Upd.setAbsCharge(0);
-    try {
-      nCand = mFitter3Body.process(cascV0Upd, mDaughterTracks[kBach], motherTrackClone);
-    } catch (std::runtime_error& e) {
-      LOG(debug) << "Fitter3Body failed: " << e.what();
-      return false;
-    }
-    if (!nCand || !mFitter3Body.propagateTracksToVertex()) {
-      LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
-      return false;
-    }
-    int nCasc{0};
-    try {
-      nCasc = mFitterV0.process(cascV0Upd, mDaughterTracks[kBach]);  // refit V0
-    } catch (std::runtime_error& e) {
-      LOG(debug) << "Cascade refit failed: " << e.what();
-    }
-    if (nCasc) {
-      mResettedMotherTrack = mFitterV0.createParentTrackParCov();
-    }
-
-    /// ======== KF reconstruction =========
-    float massProton = o2::constants::physics::MassProton;
-    float massPion = o2::constants::physics::MassPionCharged;
-    float massKaon = o2::constants::physics::MassKaonCharged;
-    float massLambda = o2::constants::physics::MassLambda;
-    float massXi = o2::constants::physics::MassXiMinus;
-    bool isMatter;
-    // set daughter masses
-    float massPosDaughter, massNegDaughter;
-    if (mDaughterTracks[kBach].getCharge() < 0) { // if bachelor charge negative, cascade is a Xi- --> Lam + pi- --> (p+ + pi-) + pi-   OR   Omega- --> Lam + K- --> (p+ + pi-) + K-
-      massPosDaughter = massProton;
-      massNegDaughter = massPion;
-      isMatter = true;
-    }  else { // if bachelor charge positive, cascade is a Xi+ --> Lam + pi+ --> (p- + pi+) + pi+  OR   Omega+ --> Lam + K+ --> (p- + pi+) + K+
-      massPosDaughter = massPion;
-      massNegDaughter = massProton;
-      isMatter = false;
-    }
-    /// V0 reconstruction
-    KFParticle cascV0KF;
-    int nV0Daughters = 2;
-    // create KFParticle objects from trackParCovs
-    KFParticle kfpDauPos = createKFParticleFromTrackParCov(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauPos].getCharge(), massPosDaughter); // positive prong
-    KFParticle kfpDauNeg = createKFParticleFromTrackParCov(mDaughterTracks[kV0DauNeg], mDaughterTracks[kV0DauNeg].getCharge(), massNegDaughter); // negative prong
-    const KFParticle* V0Daughters[2] = {&kfpDauPos, &kfpDauNeg};
-    // check and fill daughter masses
-    float Mpos, SigmaMpos, Mneg, SigmaMneg;
-    kfpDauPos.GetMass(Mpos, SigmaMpos);
-    kfpDauNeg.GetMass(Mneg, SigmaMneg);
-    mStrangeTrack.kfpDauPosMass = Mpos;
-    mStrangeTrack.kfpDauNegMass = Mneg;
-    if (Mpos==0 || Mneg==0) {
-      LOG(info) << "Daughter mass 0. Excluding candidate.";
-      return false;
-    }
-    // construct mother
-    cascV0KF.SetConstructMethod(2);
-    try {
-      cascV0KF.Construct(V0Daughters, nV0Daughters);
-    } catch (std::runtime_error& e) {
-      LOG(debug) << "Failed to construct cascade V0 from daughter tracks: " << e.what();
-      return false;
-    }
-
-    /// cascade reconstruction: Xi
-    KFParticle cascKFXi;
-    KFParticle cascKFXi_wMassConstLam;
-    int nCascDaughters = 2;
-    // set mass constraint to V0
-    KFParticle cascV0KF_wMassConst = cascV0KF;
-    try {
-      cascV0KF_wMassConst.SetNonlinearMassConstraint(massLambda);
-    } catch (std::runtime_error& e) {
-      LOG(debug) << "Failed to set non-linear mass constraint on V0 from cascade: " << e.what();
-      return false;
-    }
-    // create KFParticle objects from trackParCovs
-    KFParticle kfpBachelorXi = createKFParticleFromTrackParCov(mDaughterTracks[kBach], mDaughterTracks[kBach].getCharge(), massPion); // bachelor
-    // check and fill daughter masses
-    float MbachXi, SigmaMbachXi;
-    kfpBachelorXi.GetMass(MbachXi, SigmaMbachXi);
-    if (MbachXi==0) {
-      LOG(info) << "Bachelor mass 0. Excluding candidate."; 
-      return false;
-    }
-    const KFParticle* CascDaugthersXi[2] = {&kfpBachelorXi, &cascV0KF};
-    const KFParticle* CascDaugthersXi_wMassConstLambda[2] = {&kfpBachelorXi, &cascV0KF_wMassConst};
-    mStrangeTrack.kfpBachelorMass = MbachXi;
-    mStrangeTrack.kfpCascV0Mass = cascV0KF.GetMass();
-    float McascV0, SigmaMcascV0;
-    cascV0KF_wMassConst.GetMass(McascV0, SigmaMcascV0);
-    mStrangeTrack.kfpCascV0MassConst = McascV0;
-    // construct mother
-    cascKFXi.SetConstructMethod(2);
-    cascKFXi.Construct(CascDaugthersXi, nCascDaughters);
-    cascKFXi_wMassConstLam.SetConstructMethod(2);
-    cascKFXi_wMassConstLam.Construct(CascDaugthersXi_wMassConstLambda, nCascDaughters);
-    // transport mother to decay Vtx
-    KFParticle cascKFXidecayVtx = cascKFXi;
-    KFParticle cascKFXidecayVtx_wMassConstLam = cascKFXi_wMassConstLam;
-    cascKFXidecayVtx.TransportToDecayVertex();
-    cascKFXidecayVtx_wMassConstLam.TransportToDecayVertex();
-    mResettedMotherTrackKF = cascKFXidecayVtx;
-    mResettedMotherTrackKF_wMassConstLam = cascKFXidecayVtx_wMassConstLam;
-    // set mass of strange track
-    mStrangeTrack.mMassesKF[0] = mResettedMotherTrackKF_wMassConstLam.GetMass(); // cascades with Xi mass hypothesis
-    // transform KFParticle to TrackParCovF object
-    o2::track::TrackParCovF cascKFtrackIU;
-    if (getTrackParCovFromKFP(mITStrack, cascKFXidecayVtx_wMassConstLam, PID::XiMinus, isMatter ? -1 : 1, cascKFtrackIU))
-    {
-      mResettedMotherTrackKFtrackIU = cascKFtrackIU;
-    }
-
-    /// cascade reconstruction: Omega
-    KFParticle cascKFOm;
-    KFParticle cascKFOm_wMassConstLam;
-    // create KFParticle objects from trackParCovs
-    KFParticle kfpBachelorOm = createKFParticleFromTrackParCov(mDaughterTracks[kBach], mDaughterTracks[kBach].getCharge(), massKaon); // bachelor
-    // check and fill daughter masses
-    float MbachOm, SigmaMbachOm;
-    kfpBachelorOm.GetMass(MbachOm, SigmaMbachOm);
-    if (MbachOm==0) {
-      LOG(info) << "Bachelor mass 0. Excluding candidate."; 
-      return false;
-    }
-    const KFParticle* CascDaugthersOm[2] = {&kfpBachelorOm, &cascV0KF};
-    const KFParticle* CascDaugthersOm_wMassConstLambda[2] = {&kfpBachelorOm, &cascV0KF_wMassConst};
-    // construct mother
-    cascKFOm.SetConstructMethod(2);
-    cascKFOm.Construct(CascDaugthersOm, nCascDaughters);
-    cascKFOm_wMassConstLam.SetConstructMethod(2);
-    cascKFOm_wMassConstLam.Construct(CascDaugthersOm_wMassConstLambda, nCascDaughters);
-    // transport mother to decay Vtx
-    KFParticle cascKFOmdecayVtx = cascKFOm;
-    KFParticle cascKFOmdecayVtx_wMassConstLam = cascKFOm_wMassConstLam;
-    cascKFOmdecayVtx.TransportToDecayVertex();
-    cascKFOmdecayVtx_wMassConstLam.TransportToDecayVertex();
-    // set mass of strange track
-    mStrangeTrack.mMassesKF[1] = cascKFOmdecayVtx_wMassConstLam.GetMass(); // cascades with mass of Omega
-    
-  }
-
-
-  // ========== refit V0 ==========
-  else if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
-    /// ======= DCA fitter reconstruction =======
-    try {
-      nCand = mFitter3Body.process(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], motherTrackClone);
-    } catch (std::runtime_error& e) {
-      LOG(debug) << "Fitter3Body failed: " << e.what();
-      return false;
-    }
-    if (!nCand || !mFitter3Body.propagateTracksToVertex()) {
-      LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
-      return false;
-    }
-    int nCasc{0};
-    try {
-      nCasc = mFitterV0.process(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg]);  // refit V0
-    } catch (std::runtime_error& e) {
-      LOG(debug) << "V0 refit failed " << e.what();
-    }
-    if (nCasc) {
-      mResettedMotherTrack = mFitterV0.createParentTrackParCov();
-    }
-
-    /// ======== KF reconstruction =========
-    float massHelium3 = o2::constants::physics::MassHelium3;
-    float massAlpha = o2::constants::physics::MassAlpha;
-    float massPion = o2::constants::physics::MassPionCharged;
-    float massHyperTriton = o2::constants::physics::MassHyperTriton;
-    bool isMatter;
-    // set daughter masses
-    float massPosDaughter, massNegDaughter;
-    if (mDaughterTracks[kV0DauPos].getAbsCharge() == 2) { // if charge of positive daughter is two, it is 3He (or 4He)
-      massPosDaughter = massHelium3;
-      massNegDaughter = massPion;
-      isMatter = true;
-    } else {
-      massPosDaughter = massPion;
-      massNegDaughter = massHelium3;
-      isMatter = false;
-    }
-    // V0 reconstruction: hypertriton
-    KFParticle V0KF;
-    int nV0Daughters = 2;
-    // create KFParticle objects from trackParCovs
-    KFParticle kfpDauPos = createKFParticleFromTrackParCov(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauPos].getCharge(), massPosDaughter); // positive prong
-    KFParticle kfpDauNeg = createKFParticleFromTrackParCov(mDaughterTracks[kV0DauNeg], mDaughterTracks[kV0DauNeg].getCharge(), massNegDaughter); // negative prong
-    const KFParticle* V0Daughters_tr[2] = {&kfpDauPos, &kfpDauNeg};
-    // check and fill daughter masses
-    float Mpos, SigmaMpos, Mneg, SigmaMneg;
-    kfpDauPos.GetMass(Mpos, SigmaMpos);
-    kfpDauNeg.GetMass(Mneg, SigmaMneg);
-    mStrangeTrack.kfpDauPosMass = Mpos;
-    mStrangeTrack.kfpDauNegMass = Mneg;
-    if (Mpos==0 || Mneg==0) {
-      LOG(info) << "Daughter mass 0. Excluding candidate."; 
-      return false;
-    }
-    // construct mother
-    V0KF.SetConstructMethod(2);
-    V0KF.Construct(V0Daughters_tr, nV0Daughters);
-    KFParticle V0KFdecayVtx = V0KF;
-    V0KFdecayVtx.TransportToDecayVertex();
-    mResettedMotherTrackKF = V0KFdecayVtx;
-    // set mass of strange track
-    mStrangeTrack.mMassesKF[0] = V0KFdecayVtx.GetMass(); // V0s with hypertriton invariant mass hypothesis
-    // transform KFParticle to TrackParCovF object
-    o2::track::TrackParCovF V0KFtrackIU;
-    if (getTrackParCovFromKFP(mITStrack, V0KFdecayVtx, PID::HyperTriton, isMatter ? 1 : -1, V0KFtrackIU))
-    {
-      mResettedMotherTrackKFtrackIU = V0KFtrackIU;
-    }
-
-    // V0 reconstruction: hyperhydrogen
-    KFParticle V0KFhydro;
-    // set daughter masses
-    if (mDaughterTracks[kV0DauPos].getAbsCharge() == 2) { // if charge of positive daughter is 2, it is 4He
-      massPosDaughter = massAlpha;
-      massNegDaughter = massPion;
-    }  else {
-      massPosDaughter = massPion;
-      massNegDaughter = massAlpha;
-    }
-    // create KFParticle objects from trackParCovs
-    KFParticle kfpDauPos_hydro = createKFParticleFromTrackParCov(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauPos].getCharge(), massPosDaughter); // positive prong
-    KFParticle kfpDauNeg_hydro = createKFParticleFromTrackParCov(mDaughterTracks[kV0DauNeg], mDaughterTracks[kV0DauNeg].getCharge(), massNegDaughter); // negative prong
-    const KFParticle* V0Daughters_hydro[2] = {&kfpDauPos_hydro, &kfpDauNeg_hydro};
-    // check and fill daughter masses
-    float MposHydro, SigmaMposHydro, MnegHydro, SigmaMnegHydro;
-    kfpDauPos_hydro.GetMass(MposHydro, SigmaMposHydro);
-    kfpDauNeg_hydro.GetMass(MnegHydro, SigmaMnegHydro);
-    if (MposHydro==0 || MnegHydro==0) {
-      LOG(info) << "Daughter mass 0. Excluding candidate."; 
-      return false;
-    }
-    // construct mother
-    V0KFhydro.SetConstructMethod(2);
-    V0KFhydro.Construct(V0Daughters_hydro, nV0Daughters);
-    KFParticle V0KFhydrodecayVtx = V0KFhydro;
-    V0KFhydrodecayVtx.TransportToDecayVertex();
-    // set mass of strange track
-    mStrangeTrack.mMassesKF[1] = V0KFhydrodecayVtx.GetMass(); // V0s with mass of hyperhydrogen4
-
-    mStrangeTrack.kfpBachelorMass = -999;
-    mStrangeTrack.kfpCascV0Mass = -999;
-    mStrangeTrack.kfpCascV0MassConst = -999;
-  }
-
-  // get vertex position and chi2 of refitted track
-  mStrangeTrack.mDecayVtx = mFitter3Body.getPCACandidatePos();
-  mStrangeTrack.decayVtxX = mStrangeTrack.mDecayVtx[0];
-  mStrangeTrack.decayVtxY = mStrangeTrack.mDecayVtx[1];
-  mStrangeTrack.decayVtxZ = mStrangeTrack.mDecayVtx[2];
-  mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
-  // get vertex properties of refitted KF track
-  mStrangeTrack.mMotherKF = mResettedMotherTrackKFtrackIU;
-  mResettedMotherTrackKFtrackIU.getPxPyPzGlo(mStrangeTrack.mIUMomKF);
-  mStrangeTrack.decayVtxXKF = mResettedMotherTrackKF.GetX();
-  mStrangeTrack.decayVtxYKF = mResettedMotherTrackKF.GetY();
-  mStrangeTrack.decayVtxZKF = mResettedMotherTrackKF.GetZ();
-  mStrangeTrack.mGeoChi2KF = mResettedMotherTrackKF.GetChi2();
-  mStrangeTrack.mDecayPtKF = mResettedMotherTrackKF.GetPt();
 
   mStructClus.arr = nAttachments;
 
