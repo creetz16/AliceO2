@@ -39,6 +39,10 @@ struct StrangeTrack {
   float mITSClusSize;
   float mMatchChi2;
   float mTopoChi2;
+
+  std::array<float, 3> mIUMom;
+  float mDecayPt;
+  float mGeoChi2;
 };
 
 } // namespace dataformats
