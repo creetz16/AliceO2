@@ -151,18 +151,16 @@ class StrangenessTracker
     return std::sqrt(e2Mother - p2Mother);
   }
 
-  bool createKFV0(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack)
+  bool createKFV0(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, PID pidMother)
   {
 
     float massPosDaughter, massNegDaughter;
-    if (posTrack.getAbsCharge() == 2) { // if charge of positive daughter is two, it is 3He
-      massPosDaughter = o2::constants::physics::MassHelium3;
+    if (posTrack.getAbsCharge() == 2) { // if charge of positive daughter is two, it is 3He or 4He
+      (pidMother == PID::HyperTriton) ? massPosDaughter = o2::constants::physics::MassHelium3 : massPosDaughter = o2::constants::physics::MassAlpha;
       massNegDaughter = o2::constants::physics::MassPionCharged;
-      LOG(info) << "posTrack.getAbsCharge() == 2";
     } else {
       massPosDaughter = o2::constants::physics::MassPionCharged;
-      massNegDaughter = o2::constants::physics::MassHelium3;
-      LOG(info) << "posTrack.getAbsCharge() =|= 2";
+      (pidMother == PID::HyperTriton) ? massNegDaughter = o2::constants::physics::MassHelium3 : massNegDaughter = o2::constants::physics::MassAlpha;
     }
 
     int nV0Daughters = 2;
@@ -180,24 +178,22 @@ class StrangenessTracker
       LOG(debug) << "Failed to create KFParticle V0 from daughter tracks." << e.what();
       return false;
     }
+    KFV0.TransportToDecayVertex();
     kfpMother = KFV0;
-    kfpMother.TransportToDecayVertex();
 
     return true;
   };
 
-  bool createKFCascade(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, const o2::track::TrackParCov& bachTrack)
+  bool createKFCascade(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, const o2::track::TrackParCov& bachTrack, PID pidMother)
     {
 
       float massPosDaughter, massNegDaughter;
       if (bachTrack.getCharge() < 0) { // if bachelor charge negative, cascade is a Xi- --> Lam + pi- --> (p+ + pi-) + pi-   OR   Omega- --> Lam + K- --> (p+ + pi-) + K-
         massPosDaughter = o2::constants::physics::MassProton;
         massNegDaughter = o2::constants::physics::MassPionCharged;
-        LOG(info) << "bachTrack.getCharge() < 0";
       }  else { // if bachelor charge positive, cascade is a Xi+ --> Lam + pi+ --> (p- + pi+) + pi+  OR   Omega+ --> Lam + K+ --> (p- + pi+) + K+
         massPosDaughter = o2::constants::physics::MassPionCharged;
         massNegDaughter = o2::constants::physics::MassProton;
-        LOG(info) << "bachTrack.getCharge() >= 0";
       }
 
       int nV0Daughters = 2;
@@ -218,8 +214,14 @@ class StrangenessTracker
       KFV0.SetNonlinearMassConstraint(o2::constants::physics::MassLambda);
 
       int nCascDaughters = 2;
+      KFParticle kfpBach;
       // create KFParticle objects from trackParCovs
-      KFParticle kfpBach = createKFParticleFromTrackParCov(bachTrack, bachTrack.getCharge(), o2::constants::physics::MassPionCharged);
+      if (pidMother == PID::XiMinus) {
+        kfpBach = createKFParticleFromTrackParCov(bachTrack, bachTrack.getCharge(), o2::constants::physics::MassPionCharged);
+      } 
+      else if (pidMother == PID::OmegaMinus) {
+        kfpBach = createKFParticleFromTrackParCov(bachTrack, bachTrack.getCharge(), o2::constants::physics::MassKaonCharged);
+      }
       const KFParticle* CascDaugthers[2] = {&kfpBach, &KFV0};
 
       // construct mother

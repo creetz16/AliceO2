@@ -123,7 +123,7 @@ void StrangenessTracker::process()
     auto alphaV0 = calcV0alpha(v0);
     alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
 
-    if (!createKFV0(posTrack, negTrack)) { // reconstruct V0 with KF using Hypertriton PID
+    if (!createKFV0(posTrack, negTrack, PID::HyperTriton)) { // reconstruct V0 with KF using Hypertriton PID
       continue;
     }
 
@@ -131,8 +131,6 @@ void StrangenessTracker::process()
     if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, alphaV0 > 0 ? 1 : -1, correctedV0)) { // convert KFParticle V0 to TrackParCov object
         continue;
     }
-    LOG(info) << "alphaV0 = " << alphaV0;
-    LOG(info) << "correctedV0 charge = " << correctedV0.getCharge();
 
     mStrangeTrack.mPartType = dataformats::kStrkV0;
 
@@ -154,7 +152,6 @@ void StrangenessTracker::process()
             continue;
         }
         mStrangeTrack.mMother = correctedV0; // V0 at OuterParam of ITS track
-        LOG(info) << "correctedV0 charge after propagation = " << correctedV0.getCharge();
 
         if (matchDecayToITStrack(sqrt(v0R2))) { // now mother at IU
 
@@ -162,13 +159,10 @@ void StrangenessTracker::process()
           LOG(debug) << "Number of ITS track clusters attached: " << mITStrack.getNumberOfClusters();
 
           // get parameters at IU
-          LOG(info) << "V0 mother charge = " << mStrangeTrack.mMother.getCharge();
           mStrangeTrack.mMother.getPxPyPzGlo(mStrangeTrack.mIUMom);
 
           // get parameters at decay vertex
-          float M, SigmaM;
-          kfpMother.GetMass(M, SigmaM);
-          mStrangeTrack.mMasses[0] = M;
+          /// TODO: function --> fill KF info
           mStrangeTrack.mDecayMom[0] = kfpMother.GetPx();
           mStrangeTrack.mDecayMom[1] = kfpMother.GetPy();
           mStrangeTrack.mDecayMom[2] = kfpMother.GetPz();
@@ -205,7 +199,7 @@ void StrangenessTracker::process()
     auto negTrack = cascV0.getProng(kV0DauNeg);
     auto bachTrack = casc.getBachelorTrack();
 
-    if (!createKFCascade(posTrack, negTrack, bachTrack)) { // reconstruct cascade with KF using XiMinus PID
+    if (!createKFCascade(posTrack, negTrack, bachTrack, PID::XiMinus)) { // reconstruct cascade with KF using XiMinus PID
       continue;
     }
 
@@ -213,8 +207,6 @@ void StrangenessTracker::process()
     if (!getTrackParCovFromKFP(kfpMother, PID::XiMinus, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object
         continue;
     }
-    LOG(info) << "bachTrack.getCharge() == " << bachTrack.getCharge();
-    LOG(info) << "cascade charge = " << cascade.getCharge();
 
     mStrangeTrack.mPartType = dataformats::kStrkCascade;
 
@@ -240,7 +232,6 @@ void StrangenessTracker::process()
             continue;
         }
         mStrangeTrack.mMother = cascade; // cascade at OuterParam of ITS track
-        LOG(info) << "cascade charge after propagation = " << cascade.getCharge();
 
         if (matchDecayToITStrack(sqrt(cascR2))) // now mother is at IU
         { 
@@ -249,13 +240,10 @@ void StrangenessTracker::process()
           LOG(debug) << "Number of ITS track clusters attached: " << mITStrack.getNumberOfClusters();
 
           // get parameters at IU
-          LOG(info) << "Cascade mother charge = " << mStrangeTrack.mMother.getCharge();
           mStrangeTrack.mMother.getPxPyPzGlo(mStrangeTrack.mIUMom);
 
           // get parameters at decay vertex
-          float M, SigmaM;
-          kfpMother.GetMass(M, SigmaM);
-          mStrangeTrack.mMasses[0] = M;
+          /// TODO: put mass here
           mStrangeTrack.mDecayMom[0] = kfpMother.GetPx();
           mStrangeTrack.mDecayMom[1] = kfpMother.GetPy();
           mStrangeTrack.mDecayMom[2] = kfpMother.GetPz();
@@ -343,19 +331,64 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     }
 
     // construct updated decay vertex with KF
+    std::array<float, 3> xyz_tr, pxpypz_tr;
+    std::array<float, 3> xyz_hyd, pxpypz_hyd;
+    std::array<float, 3> deltaXYZ, deltaPxPyPz;
+    std::array<float, 21> cv_tr, cv_hyd;
+    std::array<float, 21> deltaCV;
+
     if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
-      if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg])) {
+      if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::Hyperhydrog4)) {
         return false;
       }
-      if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) { /// TODO: sign fine like this? --> no, not fine like this!
+      if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) {
         return false;
+      }
+      mStrangeTrack.mMother.getPxPyPzGlo(pxpypz_hyd);
+      mStrangeTrack.mMother.getXYZGlo(xyz_hyd);
+      mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cv_hyd);
+
+      if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::HyperTriton)) {
+        return false;
+      }
+      if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) {
+        return false;
+      }
+      mStrangeTrack.mMother.getPxPyPzGlo(pxpypz_tr);
+      mStrangeTrack.mMother.getXYZGlo(xyz_tr);
+      mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cv_tr);
+
+      for (int i=0; i<3; i++) {
+        deltaXYZ[i] = xyz_tr[i] - xyz_hyd[i];
+        deltaPxPyPz[i] = pxpypz_tr[i] - pxpypz_hyd[i];
+      }
+
+      for (int i=0; i<21; i++) {
+        deltaCV[i] = cv_tr[i] - cv_hyd[i];
+      }
+
+      // LOG(info) << "################################################";
+      // LOG(info) << "Delta x        " << deltaXYZ[0];
+      // LOG(info) << "Delta y        " << deltaXYZ[1];
+      // LOG(info) << "Delta z        " << deltaXYZ[2];
+      // LOG(info) << "Delta Px       " << deltaPxPyPz[0];
+      // LOG(info) << "Delta Py       " << deltaPxPyPz[1];
+      // LOG(info) << "Delta Pz       " << deltaPxPyPz[2];
+      if (deltaCV[0]>1e-5 || deltaCV[1]>1e-5 || deltaCV[2]>1e-5 || deltaCV[3]>1e-5 || deltaCV[4]>1e-5 || deltaCV[5]>1e-5 || deltaCV[6]>1e-5 || deltaCV[7]>1e-5 || deltaCV[8]>1e-5 || 
+      deltaCV[9]>1e-5 || deltaCV[10]>1e-5 || deltaCV[11]>1e-5 || deltaCV[12]>1e-5 || deltaCV[13]>1e-5 || deltaCV[14]>1e-5 || deltaCV[15]>1e-5 || deltaCV[16]>1e-5 || deltaCV[17]>1e-5 || 
+      deltaCV[18]>1e-5 || deltaCV[19]>1e-5 || deltaCV[20]>1e-5) {
+        for (int i=0; i<21; i++) {
+          LOG(info) << "Delta cov[" << i << "]   " << deltaCV[i];
+        }
+        LOG(info) << "################################################";
       }
     }
+
     else if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
-      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach])) {
+      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::XiMinus)) {
         return false;
       }
-      if (!getTrackParCovFromKFP(kfpMother, PID::XiMinus, mDaughterTracks[kBach].getCharge()<0 ? -1 : 1, mStrangeTrack.mMother)) { /// TODO: sign fine like this?
+      if (!getTrackParCovFromKFP(kfpMother, PID::XiMinus, mDaughterTracks[kBach].getCharge()<0 ? -1 : 1, mStrangeTrack.mMother)) {
         return false;
       }
     }
@@ -363,6 +396,43 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
 
   if (nUpdates < trackClusters.size() || motherClusters.size() < nMinClusMother) {
     return false;
+  }
+
+  // reconstruct mother at decay vertex with hypertriton/hyperhydrogen and Xi/Omega mass hypotheses
+  float M, SigmaM;
+  if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
+    // hyperhydrogen
+    if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::Hyperhydrog4)) {
+      return false;
+    }
+    // get invariant mass at decay vertex
+    kfpMother.GetMass(M, SigmaM);
+    mStrangeTrack.mMasses[1] = M;
+
+    // hypertriton
+    if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::HyperTriton)) {
+      return false;
+    }
+    // get invariant mass at decay vertex
+    kfpMother.GetMass(M, SigmaM);
+    mStrangeTrack.mMasses[0] = M;
+  }
+  else if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
+    // OmegaMinus
+    if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::OmegaMinus)) {
+      return false;
+    }
+    // get invariant mass at decay vertex
+    kfpMother.GetMass(M, SigmaM);
+    mStrangeTrack.mMasses[1] = M;
+
+    // XiMinus
+    if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::XiMinus)) {
+      return false;
+    }
+    // get invariant mass at decay vertex
+    kfpMother.GetMass(M, SigmaM);
+    mStrangeTrack.mMasses[0] = M;
   }
 
   mStructClus.arr = nAttachments;
