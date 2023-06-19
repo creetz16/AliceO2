@@ -124,6 +124,20 @@ class StrangenessTracker
     mFitter3Body.setUseAbsDCA(true);
   }
 
+  void setPID()
+  {
+    if (mStrParams->pidV0==0) {
+      pidV0 = PID::HyperTriton;
+    } else if (mStrParams->pidV0==1) {
+      pidV0 = PID::Hyperhydrog4;
+    }
+    if (mStrParams->pidCasc==0) {
+      pidCasc = PID::XiMinus;
+    } else if (mStrParams->pidCasc==1) {
+      pidCasc = PID::OmegaMinus;
+    }
+  }
+
   double calcV0alpha(const V0& v0)
   {
     std::array<float, 3> momT, momP, momN;
@@ -171,7 +185,7 @@ class StrangenessTracker
 
     // construct mother
     KFParticle KFV0;
-    KFV0.SetConstructMethod(2);
+    KFV0.SetConstructMethod(mStrParams->kfConstructMethod);
     try {
       KFV0.Construct(V0Daughters, nV0Daughters);
     } catch (std::runtime_error& e) {
@@ -204,14 +218,16 @@ class StrangenessTracker
 
       // construct V0
       KFParticle KFV0;
-      KFV0.SetConstructMethod(2);
+      KFV0.SetConstructMethod(mStrParams->kfConstructMethod);
       try {
         KFV0.Construct(V0Daughters, nV0Daughters);
       } catch (std::runtime_error& e) {
         LOG(debug) << "Failed to construct cascade V0 from daughter tracks: " << e.what();
         return false;
       }
-      KFV0.SetNonlinearMassConstraint(o2::constants::physics::MassLambda);
+      if (mStrParams->kfMassConst) {
+        KFV0.SetNonlinearMassConstraint(o2::constants::physics::MassLambda);
+      }
 
       int nCascDaughters = 2;
       KFParticle kfpBach;
@@ -226,7 +242,7 @@ class StrangenessTracker
 
       // construct mother
       KFParticle KFCasc;
-      KFCasc.SetConstructMethod(2);
+      KFCasc.SetConstructMethod(mStrParams->kfConstructMethod);
       try {
         KFCasc.Construct(CascDaugthers, nCascDaughters);
       } catch (std::runtime_error& e) {
@@ -430,6 +446,8 @@ class StrangenessTracker
   o2::its::TrackITS mITStrack;                           // ITS track
   std::array<GIndex, 2> mV0dauIDs;                       // V0 daughter IDs
   KFParticle kfpMother;                                  // mother KFParticle
+  o2::track::PID pidV0;                                  // PID hypothesis for the V0 fitting
+  o2::track::PID pidCasc;                                // PID hypothesis for the cascade fitting
 
   ClassDefNV(StrangenessTracker, 1);
 };

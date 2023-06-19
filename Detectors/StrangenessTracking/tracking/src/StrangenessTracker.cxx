@@ -123,12 +123,12 @@ void StrangenessTracker::process()
     auto alphaV0 = calcV0alpha(v0);
     alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
 
-    if (!createKFV0(posTrack, negTrack, PID::HyperTriton)) { // reconstruct V0 with KF using Hypertriton PID
+    if (!createKFV0(posTrack, negTrack, pidV0)) { // reconstruct V0 with KF using Hypertriton PID // PID::HyperTriton
       continue;
     }
 
     o2::track::TrackParCovF correctedV0;
-    if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, alphaV0 > 0 ? 1 : -1, correctedV0)) { // convert KFParticle V0 to TrackParCov object
+    if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) { // convert KFParticle V0 to TrackParCov object // PID::HyperTriton
         continue;
     }
 
@@ -199,12 +199,12 @@ void StrangenessTracker::process()
     auto negTrack = cascV0.getProng(kV0DauNeg);
     auto bachTrack = casc.getBachelorTrack();
 
-    if (!createKFCascade(posTrack, negTrack, bachTrack, PID::XiMinus)) { // reconstruct cascade with KF using XiMinus PID
+    if (!createKFCascade(posTrack, negTrack, bachTrack, pidCasc)) { // reconstruct cascade with KF using XiMinus PID // PID::XiMinus
       continue;
     }
 
     o2::track::TrackParCovF cascade;
-    if (!getTrackParCovFromKFP(kfpMother, PID::XiMinus, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object
+    if (!getTrackParCovFromKFP(kfpMother, pidCasc, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object // PID::XiMinus
         continue;
     }
 
@@ -338,34 +338,34 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     std::array<float, 21> deltaCV;
 
     if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
-      if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::Hyperhydrog4)) {
-        return false;
-      }
-      if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) {
-        return false;
-      }
-      mStrangeTrack.mMother.getPxPyPzGlo(pxpypz_hyd);
-      mStrangeTrack.mMother.getXYZGlo(xyz_hyd);
-      mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cv_hyd);
+      // if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::Hyperhydrog4)) {
+      //   return false;
+      // }
+      // if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) {
+      //   return false;
+      // }
+      // mStrangeTrack.mMother.getPxPyPzGlo(pxpypz_hyd);
+      // mStrangeTrack.mMother.getXYZGlo(xyz_hyd);
+      // mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cv_hyd);
 
-      if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::HyperTriton)) {
+      if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], pidV0)) { // PID::HyperTriton
         return false;
       }
-      if (!getTrackParCovFromKFP(kfpMother, PID::HyperTriton, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) {
+      if (!getTrackParCovFromKFP(kfpMother, pidV0, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) { // PID::HyperTriton
         return false;
       }
-      mStrangeTrack.mMother.getPxPyPzGlo(pxpypz_tr);
-      mStrangeTrack.mMother.getXYZGlo(xyz_tr);
-      mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cv_tr);
+      // mStrangeTrack.mMother.getPxPyPzGlo(pxpypz_tr);
+      // mStrangeTrack.mMother.getXYZGlo(xyz_tr);
+      // mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cv_tr);
 
-      for (int i=0; i<3; i++) {
-        deltaXYZ[i] = xyz_tr[i] - xyz_hyd[i];
-        deltaPxPyPz[i] = pxpypz_tr[i] - pxpypz_hyd[i];
-      }
+      // for (int i=0; i<3; i++) {
+      //   deltaXYZ[i] = xyz_tr[i] - xyz_hyd[i];
+      //   deltaPxPyPz[i] = pxpypz_tr[i] - pxpypz_hyd[i];
+      // }
 
-      for (int i=0; i<21; i++) {
-        deltaCV[i] = cv_tr[i] - cv_hyd[i];
-      }
+      // for (int i=0; i<21; i++) {
+      //   deltaCV[i] = cv_tr[i] - cv_hyd[i];
+      // }
 
       // LOG(info) << "################################################";
       // LOG(info) << "Delta x        " << deltaXYZ[0];
@@ -374,21 +374,21 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       // LOG(info) << "Delta Px       " << deltaPxPyPz[0];
       // LOG(info) << "Delta Py       " << deltaPxPyPz[1];
       // LOG(info) << "Delta Pz       " << deltaPxPyPz[2];
-      if (deltaCV[0]>1e-5 || deltaCV[1]>1e-5 || deltaCV[2]>1e-5 || deltaCV[3]>1e-5 || deltaCV[4]>1e-5 || deltaCV[5]>1e-5 || deltaCV[6]>1e-5 || deltaCV[7]>1e-5 || deltaCV[8]>1e-5 || 
-      deltaCV[9]>1e-5 || deltaCV[10]>1e-5 || deltaCV[11]>1e-5 || deltaCV[12]>1e-5 || deltaCV[13]>1e-5 || deltaCV[14]>1e-5 || deltaCV[15]>1e-5 || deltaCV[16]>1e-5 || deltaCV[17]>1e-5 || 
-      deltaCV[18]>1e-5 || deltaCV[19]>1e-5 || deltaCV[20]>1e-5) {
-        for (int i=0; i<21; i++) {
-          LOG(info) << "Delta cov[" << i << "]   " << deltaCV[i];
-        }
-        LOG(info) << "################################################";
-      }
+      // if (deltaCV[0]>1e-5 || deltaCV[1]>1e-5 || deltaCV[2]>1e-5 || deltaCV[3]>1e-5 || deltaCV[4]>1e-5 || deltaCV[5]>1e-5 || deltaCV[6]>1e-5 || deltaCV[7]>1e-5 || deltaCV[8]>1e-5 || 
+      // deltaCV[9]>1e-5 || deltaCV[10]>1e-5 || deltaCV[11]>1e-5 || deltaCV[12]>1e-5 || deltaCV[13]>1e-5 || deltaCV[14]>1e-5 || deltaCV[15]>1e-5 || deltaCV[16]>1e-5 || deltaCV[17]>1e-5 || 
+      // deltaCV[18]>1e-5 || deltaCV[19]>1e-5 || deltaCV[20]>1e-5) {
+      //   for (int i=0; i<21; i++) {
+      //     LOG(info) << "Delta cov[" << i << "]   " << deltaCV[i];
+      //   }
+      //   LOG(info) << "################################################";
+      // }
     }
 
     else if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
-      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::XiMinus)) {
+      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], pidCasc)) { // PID::XiMinus
         return false;
       }
-      if (!getTrackParCovFromKFP(kfpMother, PID::XiMinus, mDaughterTracks[kBach].getCharge()<0 ? -1 : 1, mStrangeTrack.mMother)) {
+      if (!getTrackParCovFromKFP(kfpMother, pidCasc, mDaughterTracks[kBach].getCharge()<0 ? -1 : 1, mStrangeTrack.mMother)) { // PID::XiMinus
         return false;
       }
     }
@@ -398,42 +398,42 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     return false;
   }
 
-  // reconstruct mother at decay vertex with hypertriton/hyperhydrogen and Xi/Omega mass hypotheses
-  float M, SigmaM;
-  if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
-    // hyperhydrogen
-    if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::Hyperhydrog4)) {
-      return false;
-    }
-    // get invariant mass at decay vertex
-    kfpMother.GetMass(M, SigmaM);
-    mStrangeTrack.mMasses[1] = M;
+  // // reconstruct mother at decay vertex with hypertriton/hyperhydrogen and Xi/Omega mass hypotheses
+  // float M, SigmaM;
+  // if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
+  //   // hyperhydrogen
+  //   if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::Hyperhydrog4)) {
+  //     return false;
+  //   }
+  //   // get invariant mass at decay vertex
+  //   kfpMother.GetMass(M, SigmaM);
+  //   mStrangeTrack.mMasses[1] = M;
 
-    // hypertriton
-    if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::HyperTriton)) {
-      return false;
-    }
-    // get invariant mass at decay vertex
-    kfpMother.GetMass(M, SigmaM);
-    mStrangeTrack.mMasses[0] = M;
-  }
-  else if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
-    // OmegaMinus
-    if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::OmegaMinus)) {
-      return false;
-    }
-    // get invariant mass at decay vertex
-    kfpMother.GetMass(M, SigmaM);
-    mStrangeTrack.mMasses[1] = M;
+  //   // hypertriton
+  //   if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], PID::HyperTriton)) {
+  //     return false;
+  //   }
+  //   // get invariant mass at decay vertex
+  //   kfpMother.GetMass(M, SigmaM);
+  //   mStrangeTrack.mMasses[0] = M;
+  // }
+  // else if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
+  //   // OmegaMinus
+  //   if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::OmegaMinus)) {
+  //     return false;
+  //   }
+  //   // get invariant mass at decay vertex
+  //   kfpMother.GetMass(M, SigmaM);
+  //   mStrangeTrack.mMasses[1] = M;
 
-    // XiMinus
-    if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::XiMinus)) {
-      return false;
-    }
-    // get invariant mass at decay vertex
-    kfpMother.GetMass(M, SigmaM);
-    mStrangeTrack.mMasses[0] = M;
-  }
+  //   // XiMinus
+  //   if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], PID::XiMinus)) {
+  //     return false;
+  //   }
+  //   // get invariant mass at decay vertex
+  //   kfpMother.GetMass(M, SigmaM);
+  //   mStrangeTrack.mMasses[0] = M;
+  // }
 
   mStructClus.arr = nAttachments;
 
