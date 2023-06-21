@@ -126,14 +126,14 @@ class StrangenessTracker
 
   void setPID()
   {
-    if (mStrParams->pidV0==0) {
+    if (mStrParams->pidV0 == 0) {
       pidV0 = PID::HyperTriton;
     } else if (mStrParams->pidV0==1) {
       pidV0 = PID::Hyperhydrog4;
     }
-    if (mStrParams->pidCasc==0) {
+    if (mStrParams->pidCasc == 0) {
       pidCasc = PID::XiMinus;
-    } else if (mStrParams->pidCasc==1) {
+    } else if (mStrParams->pidCasc == 1) {
       pidCasc = PID::OmegaMinus;
     }
   }
@@ -407,6 +407,20 @@ class StrangenessTracker
     }
 
     return true;
+  }
+
+  bool fillKFinfo(const KFParticle& kfParticle) {
+    float M, SigmaM;
+    kfParticle.GetMass(M, SigmaM);
+    mStrangeTrack.mMasses[0] = M;
+    mStrangeTrack.mDecayMom[0] = kfParticle.GetPx();
+    mStrangeTrack.mDecayMom[1] = kfParticle.GetPy();
+    mStrangeTrack.mDecayMom[2] = kfParticle.GetPz();
+    mStrangeTrack.mDecayPt = kfParticle.GetPt();
+    mStrangeTrack.mDecayVtx[0] = kfParticle.GetX();
+    mStrangeTrack.mDecayVtx[1] = kfParticle.GetY();
+    mStrangeTrack.mDecayVtx[2] = kfParticle.GetZ();
+    mStrangeTrack.mGeoChi2 = kfParticle.GetChi2();
   }
 
 
