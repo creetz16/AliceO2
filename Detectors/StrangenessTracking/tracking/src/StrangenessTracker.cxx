@@ -274,6 +274,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   int nUpdates = 0;
   bool isMotherUpdated = false;
 
+  LOG(info) << "##########################";
   for (int iClus{0}; iClus < trackClusters.size(); iClus++) {
     auto& clus = trackClusters[iClus];
     auto& compClus = trackClusSizes[iClus];
@@ -291,7 +292,10 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
         nAttachments[geom->getLayer(clus.getSensorID())] = 0;
         isMotherUpdated = true;
         nUpdates++;
-        LOG(debug) << "Cluster attached to Mother";
+        LOG(info) << "Cluster attached to Mother";
+        std::array<float, 3> mom;
+        mStrangeTrack.mMother.getPxPyPzGlo(mom);
+        LOG(info) << "Updated mother momentum = (" << mom[0] << ", " << mom[1] << ", " << mom[2] << ")";
         continue; // if the cluster is attached to the mother, skip the rest of the loop
       }
     }
@@ -305,16 +309,19 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
         if (updateTrack(clus, dauTrack)) {
           nAttachments[geom->getLayer(clus.getSensorID())] = iDau + 1;
           isDauUpdated = true;
+          LOG(info) << "Cluster attached to Daughter";
           break;
         }
       }
       if (!isDauUpdated) {
+        LOG(info) << "No daughter track updated.";
         break; // no daughter track updated, stop the loop
       }
       nUpdates++;
       
     }
     if (nUpdates == nUpdOld) {
+      LOG(info) << "No track updated.";
       break; // no track updated, stop the loop
     }
 
@@ -324,6 +331,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], pidV0)) { // PID::HyperTriton
         return false;
       }
+      LOG(info) << "Updated mother momentum = (" << kfpMother.GetPx() << ", " << kfpMother.GetPy() << ", " << kfpMother.GetPz() << ")";
       if (!getTrackParCovFromKFP(kfpMother, pidV0, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) { // PID::HyperTriton
         return false;
       }
@@ -338,7 +346,8 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
         return false;
       }
     }
-  }
+  } // end of cluster loop
+  LOG(info) << "##########################";
 
   if (nUpdates < trackClusters.size() || motherClusters.size() < nMinClusMother) {
     return false;

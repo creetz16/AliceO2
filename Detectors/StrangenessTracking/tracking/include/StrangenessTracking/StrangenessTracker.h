@@ -421,6 +421,7 @@ class StrangenessTracker
     mStrangeTrack.mDecayVtx[1] = kfParticle.GetY();
     mStrangeTrack.mDecayVtx[2] = kfParticle.GetZ();
     mStrangeTrack.mGeoChi2 = kfParticle.GetChi2();
+    return true;
   }
 
 
