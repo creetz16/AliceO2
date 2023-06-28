@@ -54,9 +54,10 @@ void StrangenessTrackerSpec::init(framework::InitContext& ic)
   // load propagator
 
   o2::base::GRPGeomHelper::instance().setRequest(mGGCCDBRequest);
-  mTracker.setCorrType(o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrLUT);
+  mTracker.setCorrType(o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrTGeo);
   mTracker.setConfigParams(&StrangenessTrackingParamConfig::Instance());
   mTracker.setupFitters();
+  mTracker.setPID();
 
   LOG(info) << "Initialized strangeness tracker...";
 }

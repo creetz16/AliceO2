@@ -128,7 +128,7 @@ class StrangenessTracker
   {
     if (mStrParams->pidV0 == 0) {
       pidV0 = PID::HyperTriton;
-    } else if (mStrParams->pidV0==1) {
+    } else if (mStrParams->pidV0 == 1) {
       pidV0 = PID::Hyperhydrog4;
     }
     if (mStrParams->pidCasc == 0) {
