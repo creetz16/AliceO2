@@ -145,14 +145,14 @@ void StrangenessTracker::process()
           auto propInstance = o2::base::Propagator::Instance();
           o2::track::TrackParCov decayVtxTrackClone = mStrangeTrack.mMother; // clone track and propagate to decay vertex
           if (!propInstance->propagateToX(decayVtxTrackClone, mStrangeTrack.mDecayVtx[0], getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
-            LOG(debug) << "Mother propagation to decay vertex failed";
+            LOG(info) << "Mother propagation to decay vertex failed";
             continue;
           }
 
           decayVtxTrackClone.getPxPyPzGlo(mStrangeTrack.mDecayMom);
           std::array<float, 3> momPos, momNeg;
-          mFitter3Body.getTrack(kV0DauPos).getPxPyPzGlo(momPos);
-          mFitter3Body.getTrack(kV0DauNeg).getPxPyPzGlo(momNeg);
+          mFitterV0.getTrack(kV0DauPos).getPxPyPzGlo(momPos);
+          mFitterV0.getTrack(kV0DauNeg).getPxPyPzGlo(momNeg);
           if (alphaV0 > 0) {
             mStrangeTrack.mMasses[0] = calcMotherMass(momPos, momNeg, PID::Helium3, PID::Pion); // Hypertriton invariant mass at decay vertex
             mStrangeTrack.mMasses[1] = calcMotherMass(momPos, momNeg, PID::Alpha, PID::Pion);   // Hyperhydrogen4Lam invariant mass at decay vertex
@@ -213,13 +213,13 @@ void StrangenessTracker::process()
           auto propInstance = o2::base::Propagator::Instance();
           o2::track::TrackParCov decayVtxTrackClone = mStrangeTrack.mMother; // clone track and propagate to decay vertex
           if (!propInstance->propagateToX(decayVtxTrackClone, mStrangeTrack.mDecayVtx[0], getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
-            LOG(debug) << "Mother propagation to decay vertex failed";
+            LOG(info) << "Mother propagation to decay vertex failed";
             continue;
           }
           decayVtxTrackClone.getPxPyPzGlo(mStrangeTrack.mDecayMom);
           std::array<float, 3> momV0, mombach;
-          mFitter3Body.getTrack(0).getPxPyPzGlo(momV0);                                      // V0 momentum at decay vertex
-          mFitter3Body.getTrack(1).getPxPyPzGlo(mombach);                                    // bachelor momentum at decay vertex
+          mFitterV0.getTrack(0).getPxPyPzGlo(momV0);                                      // V0 momentum at decay vertex
+          mFitterV0.getTrack(1).getPxPyPzGlo(mombach);                                    // bachelor momentum at decay vertex
           mStrangeTrack.mMasses[0] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Pion); // Xi invariant mass at decay vertex
           mStrangeTrack.mMasses[1] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Kaon); // Omega invariant mass at decay vertex
 
@@ -307,26 +307,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     return false;
   }
 
-  o2::track::TrackParCov motherTrackClone = mStrangeTrack.mMother; // clone and reset covariance for final topology refit
-  motherTrackClone.resetCovariance();
-
-  LOG(debug) << "Clusters attached, starting inward-outward refit";
-
-  std::reverse(motherClusters.begin(), motherClusters.end());
-
-  for (auto& clus : motherClusters) {
-    if (!updateTrack(clus, motherTrackClone)) {
-      break;
-    }
-  }
-
-  // compute mother average cluster size
-  mStrangeTrack.mITSClusSize = float(std::accumulate(motherClusSizes.begin(), motherClusSizes.end(), 0)) / motherClusSizes.size();
-
-  LOG(debug) << "Inward-outward refit finished, starting final topology refit";
-  // final Topology refit
-
-  int cand = 0; // best V0 candidate
+  // fit with updated cascades
   int nCand;
 
   // refit cascade
@@ -336,14 +317,16 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       LOG(debug) << "Cascade V0 refit failed";
       return false;
     }
+
     try {
-      nCand = mFitter3Body.process(cascV0Upd, mDaughterTracks[kBach], motherTrackClone);
+      nCand = mFitterV0.process(cascV0Upd, mDaughterTracks[kBach]);
     } catch (std::runtime_error& e) {
-      LOG(debug) << "Fitter3Body failed: " << e.what();
+      LOG(debug) << "Fitter2Body failed: " << e.what();
       return false;
     }
-    if (!nCand || !mFitter3Body.propagateTracksToVertex()) {
-      LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
+
+    if (!nCand || !mFitterV0.propagateTracksToVertex()) {
+      LOG(debug) << "Fitter2Body failed: propagation to vertex failed";
       return false;
     }
   }
@@ -351,19 +334,79 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   // refit V0
   else if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
     try {
-      nCand = mFitter3Body.process(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], motherTrackClone);
+      nCand = mFitterV0.process(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg]);
     } catch (std::runtime_error& e) {
-      LOG(debug) << "Fitter3Body failed: " << e.what();
+      LOG(debug) << "Fitter2Body failed: " << e.what();
       return false;
     }
-    if (!nCand || !mFitter3Body.propagateTracksToVertex()) {
-      LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
+    if (!nCand || !mFitterV0.propagateTracksToVertex()) {
+      LOG(debug) << "Fitter2Body failed: propagation to vertex failed";
       return false;
     }
   }
 
-  mStrangeTrack.mDecayVtx = mFitter3Body.getPCACandidatePos();
-  mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
+  mStrangeTrack.mDecayVtx = mFitterV0.getPCACandidatePos();
+  mStrangeTrack.mTopoChi2 = mFitterV0.getChi2AtPCACandidate(); 
+
+
+  // o2::track::TrackParCov motherTrackClone = mStrangeTrack.mMother; // clone and reset covariance for final topology refit
+  // motherTrackClone.resetCovariance();
+
+  // LOG(debug) << "Clusters attached, starting inward-outward refit";
+
+  // std::reverse(motherClusters.begin(), motherClusters.end());
+
+  // for (auto& clus : motherClusters) {
+  //   if (!updateTrack(clus, motherTrackClone)) {
+  //     break;
+  //   }
+  // }
+
+  // // compute mother average cluster size
+  // mStrangeTrack.mITSClusSize = float(std::accumulate(motherClusSizes.begin(), motherClusSizes.end(), 0)) / motherClusSizes.size();
+
+  // LOG(debug) << "Inward-outward refit finished, starting final topology refit";
+  // // final Topology refit
+
+  // int cand = 0; // best V0 candidate
+  // int nCand;
+
+  // // refit cascade
+  // if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
+  //   V0 cascV0Upd;
+  //   if (!recreateV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], cascV0Upd)) {
+  //     LOG(debug) << "Cascade V0 refit failed";
+  //     return false;
+  //   }
+  //   try {
+  //     nCand = mFitter3Body.process(cascV0Upd, mDaughterTracks[kBach], motherTrackClone);
+  //   } catch (std::runtime_error& e) {
+  //     LOG(debug) << "Fitter3Body failed: " << e.what();
+  //     return false;
+  //   }
+  //   if (!nCand || !mFitter3Body.propagateTracksToVertex()) {
+  //     LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
+  //     return false;
+  //   }
+  // }
+
+  // // refit V0
+  // else if (mStrangeTrack.mPartType == dataformats::kStrkV0) {
+  //   try {
+  //     nCand = mFitter3Body.process(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], motherTrackClone);
+  //   } catch (std::runtime_error& e) {
+  //     LOG(debug) << "Fitter3Body failed: " << e.what();
+  //     return false;
+  //   }
+  //   if (!nCand || !mFitter3Body.propagateTracksToVertex()) {
+  //     LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
+  //     return false;
+  //   }
+  // }
+
+  // mStrangeTrack.mDecayVtx = mFitter3Body.getPCACandidatePos();
+  // mStrangeTrack.mTopoChi2 = mFitter3Body.getChi2AtPCACandidate();
+
   mStructClus.arr = nAttachments;
 
   return true;
