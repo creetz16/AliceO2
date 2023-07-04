@@ -275,6 +275,14 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   bool isMotherUpdated = false;
 
   LOG(info) << "##########################";
+  int counterBad = 0;
+  std::array<float, 3> mom;
+  std::array<float, 21> cv;
+  mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cv);
+  mStrangeTrack.mMother.getPxPyPzGlo(mom);
+  LOG(debug) << "Mother momentum before update = (" << mom[0] << ", " << mom[1] << ", " << mom[2] << ")";
+  LOG(debug) << "Mother squared unc on 1/pT before update = " << cv[20];
+  float deltaCV = cv[20];
   for (int iClus{0}; iClus < trackClusters.size(); iClus++) {
     auto& clus = trackClusters[iClus];
     auto& compClus = trackClusSizes[iClus];
@@ -283,9 +291,10 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     auto diffR = decayR - clusRad;
     auto relDiffR = diffR / decayR;
     // Look for the Mother if the Decay radius allows for it, within a tolerance
-    LOG(debug) << "decayR: " << decayR << ", diffR: " << diffR << ", clus rad: " << clusRad << ", radTol: " << radTol;
+    LOG(info) << "decayR: " << decayR << ", clus rad: " << clusRad << ", diffR: " << diffR << ", relDiffR: " << relDiffR << ", radTol: " << radTol;
     if (relDiffR > -radTol) {
       LOG(debug) << "Try to attach cluster to Mother, layer: " << geom->getLayer(clus.getSensorID());
+
       if (updateTrack(clus, mStrangeTrack.mMother)) {
         motherClusters.push_back(clus);
         motherClusSizes.push_back(compClus);
@@ -293,19 +302,28 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
         isMotherUpdated = true;
         nUpdates++;
         LOG(info) << "Cluster attached to Mother";
-        std::array<float, 3> mom;
-        mStrangeTrack.mMother.getPxPyPzGlo(mom);
-        LOG(info) << "Updated mother momentum = (" << mom[0] << ", " << mom[1] << ", " << mom[2] << ")";
+
+        // print momentumm change
+        std::array<float, 3> momup;
+        std::array<float, 21> cvup;
+        mStrangeTrack.mMother.getCovXYZPxPyPzGlo(cvup);
+        mStrangeTrack.mMother.getPxPyPzGlo(momup);
+        LOG(debug) << "Updated mother momentum = (" << momup[0] << ", " << momup[1] << ", " << momup[2] << ")";
+        deltaCV = abs(deltaCV - cvup[20]);
+        LOG(debug) << "Difference in squared unc on 1/pT = " << deltaCV;
+        if (deltaCV > 1e-2) counterBad++;
+
         continue; // if the cluster is attached to the mother, skip the rest of the loop
       }
     }
 
-    // if Mother is not found, check for V0 daughters compatibility
+    // if Mother is not found, check for daughters compatibility
     if (relDiffR < radTol && !isMotherUpdated) {
       bool isDauUpdated = false;
       LOG(debug) << "Try to attach cluster to Daughters, layer: " << geom->getLayer(clus.getSensorID());
       for (int iDau{0}; iDau < mDaughterTracks.size(); iDau++) {
         auto& dauTrack = mDaughterTracks[iDau];
+
         if (updateTrack(clus, dauTrack)) {
           nAttachments[geom->getLayer(clus.getSensorID())] = iDau + 1;
           isDauUpdated = true;
@@ -331,7 +349,13 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], pidV0)) { // PID::HyperTriton
         return false;
       }
-      LOG(info) << "Updated mother momentum = (" << kfpMother.GetPx() << ", " << kfpMother.GetPy() << ", " << kfpMother.GetPz() << ")";
+      // print mommentum change
+      LOG(debug) << "Updated mother momentum = (" << kfpMother.GetPx() << ", " << kfpMother.GetPy() << ", " << kfpMother.GetPz() << ")";
+      float cv20up = kfpMother.GetCovariance(20);
+      deltaCV = abs(deltaCV - cv20up);
+      if (deltaCV > 1e-2) counterBad++;
+      LOG(debug) << "Difference in squared unc on 1/pT = " << deltaCV;
+
       if (!getTrackParCovFromKFP(kfpMother, pidV0, mDaughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, mStrangeTrack.mMother)) { // PID::HyperTriton
         return false;
       }
@@ -355,6 +379,9 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
 
   mStructClus.arr = nAttachments;
 
+  LOG(info) << "Number of updates: " << nUpdates;
+  LOG(info) << "Number of times deltaCV > 1e-2: " << counterBad;
+
   return true;
 }
 
@@ -369,7 +396,20 @@ bool StrangenessTracker::updateTrack(const ITSCluster& clus, o2::track::TrackPar
     return false;
   }
 
+  // print position
+  double StartX = track.getX();
+  double StartY = track.getY();
+  double StartZ = track.getZ();
+  double radius2 = StartX * StartX + StartY * StartY;
+  if (sqrt(radius2) > 40) {
+    LOG(info) << "Radius outside ITS: " << sqrt(radius2);
+  }
+  if (abs(StartZ) > 75) {
+    LOG(info) << "z-position outside ITS: " << StartZ;
+  }
+
   if (!propInstance->propagateToX(track, x, getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
+    LOG(info) << "Propagation failed.";
     return false;
   }
 
