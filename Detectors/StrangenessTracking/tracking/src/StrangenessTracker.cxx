@@ -267,7 +267,12 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     auto diffR = decayR - clusRad;
     auto relDiffR = diffR / decayR;
     // Look for the Mother if the Decay radius allows for it, within a tolerance
-    LOG(debug) << "decayR: " << decayR << ", diffR: " << diffR << ", clus rad: " << clusRad << ", radTol: " << radTol;
+    LOG(info) << "decayR: " << decayR << ", diffR: " << diffR << ", clus rad: " << clusRad << ", radTol: " << radTol;
+
+    // print position
+    float radius2Mother = mStrangeTrack.mMother.getX() * mStrangeTrack.mMother.getX() + mStrangeTrack.mMother.getY() * mStrangeTrack.mMother.getY();
+    LOG(info) << "Particle type: " << mStrangeTrack.mPartType << ", radius of TrackParCov mother: " << radius2Mother;
+
     if (relDiffR > -radTol) {
       LOG(debug) << "Try to attach cluster to Mother, layer: " << geom->getLayer(clus.getSensorID());
       if (updateTrack(clus, mStrangeTrack.mMother)) {
@@ -276,7 +281,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
         nAttachments[geom->getLayer(clus.getSensorID())] = 0;
         isMotherUpdated = true;
         nUpdates++;
-        LOG(debug) << "Cluster attached to Mother";
+        LOG(info) << "Cluster attached to Mother";
         continue; // if the cluster is attached to the mother, skip the rest of the loop
       }
     }
@@ -290,10 +295,12 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
         if (updateTrack(clus, dauTrack)) {
           nAttachments[geom->getLayer(clus.getSensorID())] = iDau + 1;
           isDauUpdated = true;
+          LOG(info) << "Cluster attached to Daughter";
           break;
         }
       }
       if (!isDauUpdated) {
+        LOG(info) << "No track updated. Stop the loop.";
         break; // no daughter track updated, stop the loop
       }
       nUpdates++;
@@ -302,6 +309,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       break; // no track updated, stop the loop
     }
   }
+  LOG (info) << "#########################";
 
   if (nUpdates < trackClusters.size() || motherClusters.size() < nMinClusMother) {
     return false;
