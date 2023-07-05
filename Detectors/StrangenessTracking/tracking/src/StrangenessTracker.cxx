@@ -292,6 +292,10 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     auto relDiffR = diffR / decayR;
     // Look for the Mother if the Decay radius allows for it, within a tolerance
     LOG(info) << "decayR: " << decayR << ", clus rad: " << clusRad << ", diffR: " << diffR << ", relDiffR: " << relDiffR << ", radTol: " << radTol;
+    // print position
+    double radius2Mother = mStrangeTrack.mMother.getX() * mStrangeTrack.mMother.getX() + mStrangeTrack.mMother.getY() * mStrangeTrack.mMother.getY();
+    LOG(info) << "Mother radius from kfpMother TrackParCov: " << sqrt(radius2Mother);
+
     if (relDiffR > -radTol) {
       LOG(debug) << "Try to attach cluster to Mother, layer: " << geom->getLayer(clus.getSensorID());
 
