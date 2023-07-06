@@ -126,10 +126,13 @@ void StrangenessTracker::process()
     mStrangeTrack.mPartType = dataformats::kStrkV0;
 
     auto v0R2 = v0.calcR2();
+    LOG(info) << "Radius of V0: " << sqrt(v0.calcR2());
+    LOG(info) << "Radius of corrected V0: " << sqrt(correctedV0.calcR2());
     auto iBinsV0 = mUtils.getBinRect(correctedV0.getEta(), correctedV0.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
     for (int& iBinV0 : iBinsV0) {
       for (int iTrack{mTracksIdxTable[iBinV0]}; iTrack < TMath::Min(mTracksIdxTable[iBinV0 + 1], int(mSortedITStracks.size())); iTrack++) {
         mStrangeTrack.mMother = (o2::track::TrackParCovF)correctedV0;
+        LOG(info) << "Radius of mMother from corrected V0: " << sqrt(mStrangeTrack.mMother.getX() * mStrangeTrack.mMother.getX() + mStrangeTrack.mMother.getY() * mStrangeTrack.mMother.getY());
         mDaughterTracks[kV0DauPos] = correctedV0.getProng(kV0DauPos);
         mDaughterTracks[kV0DauNeg] = correctedV0.getProng(kV0DauNeg);
         mITStrack = mSortedITStracks[iTrack];
@@ -190,10 +193,12 @@ void StrangenessTracker::process()
     mStrangeTrack.mPartType = dataformats::kStrkCascade;
     // first: bachelor, second: V0 pos, third: V0 neg
     auto cascR2 = casc.calcR2();
+    LOG(info) << "Radius of cascade: " << sqrt(casc.calcR2());
     auto iBinsCasc = mUtils.getBinRect(casc.getEta(), casc.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
     for (int& iBinCasc : iBinsCasc) {
       for (int iTrack{mTracksIdxTable[iBinCasc]}; iTrack < TMath::Min(mTracksIdxTable[iBinCasc + 1], int(mSortedITStracks.size())); iTrack++) {
         mStrangeTrack.mMother = (o2::track::TrackParCovF)casc;
+        LOG(info) << "Radius of mMother from cascade: " << sqrt(mStrangeTrack.mMother.getX() * mStrangeTrack.mMother.getX() + mStrangeTrack.mMother.getY() * mStrangeTrack.mMother.getY());
         mDaughterTracks[kV0DauPos] = cascV0.getProng(kV0DauPos);
         mDaughterTracks[kV0DauNeg] = cascV0.getProng(kV0DauNeg);
         mDaughterTracks[kBach] = casc.getBachelorTrack();
@@ -246,7 +251,9 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
   auto trackClusters = getTrackClusters();
   auto trackClusSizes = getTrackClusterSizes();
   auto& lastClus = trackClusters[0];
+  LOG(info) << "Radius of mMother before propagation to OuterParam: " << sqrt(mStrangeTrack.mMother.getX() * mStrangeTrack.mMother.getX() + mStrangeTrack.mMother.getY() * mStrangeTrack.mMother.getY());
   mStrangeTrack.mMatchChi2 = getMatchingChi2(mStrangeTrack.mMother, mITStrack);
+  LOG(info) << "Radius of mMother after propagation to OuterParam: " << sqrt(mStrangeTrack.mMother.getX() * mStrangeTrack.mMother.getX() + mStrangeTrack.mMother.getY() * mStrangeTrack.mMother.getY());
 
   auto radTol = decayR < 4 ? mStrParams->mRadiusTolIB : mStrParams->mRadiusTolOB;
   auto nMinClusMother = trackClusters.size() < 4 ? 2 : mStrParams->mMinMotherClus;
@@ -271,7 +278,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
 
     // print position
     float radius2Mother = mStrangeTrack.mMother.getX() * mStrangeTrack.mMother.getX() + mStrangeTrack.mMother.getY() * mStrangeTrack.mMother.getY();
-    LOG(info) << "Particle type: " << mStrangeTrack.mPartType << ", radius of TrackParCov mother: " << radius2Mother;
+    LOG(info) << "Particle type: " << mStrangeTrack.mPartType << ", radius of TrackParCov mother: " << sqrt(radius2Mother);
 
     if (relDiffR > -radTol) {
       LOG(debug) << "Try to attach cluster to Mother, layer: " << geom->getLayer(clus.getSensorID());
