@@ -123,6 +123,7 @@ void StrangenessTracker::process()
     auto alphaV0 = calcV0alpha(v0);
     alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
 
+    LOG(info) << "Position of V0 before KFParticle creation: (" << v0.getX() << ", " << v0.getY() << ", " << v0.getZ() << ")";
     if (!createKFV0(posTrack, negTrack, pidV0)) { // reconstruct V0 with KF using Hypertriton PID // PID::HyperTriton
       continue;
     }
@@ -193,6 +194,7 @@ void StrangenessTracker::process()
     auto negTrack = cascV0.getProng(kV0DauNeg);
     auto bachTrack = casc.getBachelorTrack();
 
+    LOG(info) << "Position of cascade before KFParticle creation: (" << casc.getX() << ", " << casc.getY() << ", " << casc.getZ() << ")";
     if (!createKFCascade(posTrack, negTrack, bachTrack, pidCasc)) { // reconstruct cascade with KF using XiMinus PID // PID::XiMinus
       continue;
     }
@@ -287,7 +289,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     auto& clus = trackClusters[iClus];
     auto& compClus = trackClusSizes[iClus];
     int nUpdOld = nUpdates;
-    double clusRad = sqrt(clus.getX() * clus.getX() - clus.getY() * clus.getY());
+    double clusRad = sqrt(clus.getX() * clus.getX() + clus.getY() * clus.getY());
     auto diffR = decayR - clusRad;
     auto relDiffR = diffR / decayR;
     // Look for the Mother if the Decay radius allows for it, within a tolerance

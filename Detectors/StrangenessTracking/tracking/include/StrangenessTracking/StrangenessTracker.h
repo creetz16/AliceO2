@@ -358,6 +358,9 @@ class StrangenessTracker
 
   bool getTrackParCovFromKFP(const KFParticle& kfParticle, const PID pid, const int sign, o2::track::TrackParCovF& track)
   {
+
+    // position check
+    LOG(info) << "Position of kfmother before transformation: (" << kfParticle.GetX() << ", " << kfParticle.GetY() << ", " << kfParticle.GetZ() << ")";
     
     o2::gpu::gpustd::array<float, 3> xyz, pxpypz;
     o2::gpu::gpustd::array<float, 21> cv;
@@ -377,6 +380,9 @@ class StrangenessTracker
 
     // create TrackParCov track
     track = o2::track::TrackParCovF(xyz, pxpypz, cv, sign, true, pid);
+
+    // position check
+    LOG(info) << "Position of TrackParCov after transformation: (" << track.getX() << ", " << track.getY() << ", " << track.getZ() << ")";
 
     return true;
   }
