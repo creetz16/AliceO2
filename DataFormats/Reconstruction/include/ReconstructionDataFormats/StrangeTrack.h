@@ -42,6 +42,13 @@ struct StrangeTrack {
   float mMatchChi2;
   float mTopoChi2;
   float mGeoChi2;
+  float mGeoChi2KFcreation;
+  float mMotherZ;
+  float mMotherZkf;
+  float mMotherR;
+  float mMotherRkf;
+  float mMotherCov20;
+  float mMotherCov20kf;
 };
 
 } // namespace dataformats

@@ -128,13 +128,17 @@ class StrangenessTracker
   {
     if (mStrParams->pidV0 == 0) {
       pidV0 = PID::HyperTriton;
+      pidV0comp = PID::Hyperhydrog4;
     } else if (mStrParams->pidV0 == 1) {
       pidV0 = PID::Hyperhydrog4;
+      pidV0comp = PID::HyperTriton;
     }
     if (mStrParams->pidCasc == 0) {
       pidCasc = PID::XiMinus;
+      pidCascComp = PID::OmegaMinus;
     } else if (mStrParams->pidCasc == 1) {
       pidCasc = PID::OmegaMinus;
+      pidCascComp = PID::XiMinus;
     }
   }
 
@@ -192,7 +196,9 @@ class StrangenessTracker
       LOG(debug) << "Failed to create KFParticle V0 from daughter tracks." << e.what();
       return false;
     }
+    LOG(debug) << "KFParticle V0 position before TransportToDecayVertex(): (" <<  KFV0.GetX() << ", " << KFV0.GetY() << ", " << KFV0.GetZ() << ")";
     KFV0.TransportToDecayVertex();
+    LOG(debug) << "KFParticle V0 position after TransportToDecayVertex(): (" <<  KFV0.GetX() << ", " << KFV0.GetY() << ", " << KFV0.GetZ() << ")";
     kfpMother = KFV0;
 
     return true;
@@ -332,6 +338,8 @@ class StrangenessTracker
       xyzpxpypz[i + 3] = pxpypz[i];
     }
 
+    LOG(debug) << "Glo position of TrackParCov before KFParticle creation: (" << xyz[0] << ", " << xyz[1] << ", " << xyz[2] << ")";
+
     std::array<float, 21> cv;
     try {
       trackparCov.getCovXYZPxPyPzGlo(cv);
@@ -353,6 +361,8 @@ class StrangenessTracker
     kfPart.GetMass(M, SigmaM);
     LOG(debug) << "Daughter KFParticle mass after creation: " << M << " +- " << SigmaM;
 
+    LOG(debug) << "Position of KFParticle after creation from TrackParCov: (" << kfPart.GetX() << ", " << kfPart.GetY() << ", " << kfPart.GetZ() << ")";
+
     return kfPart;
   }
 
@@ -360,7 +370,8 @@ class StrangenessTracker
   {
 
     // position check
-    LOG(info) << "Position of kfmother before transformation: (" << kfParticle.GetX() << ", " << kfParticle.GetY() << ", " << kfParticle.GetZ() << ")";
+    LOG(debug) << "Position of kfmother before transformation: (" << kfParticle.GetX() << ", " << kfParticle.GetY() << ", " << kfParticle.GetZ() << ")";
+    // LOG(info) << "Momentum of kfmother before transformation: (" << kfParticle.GetPx() << ", " << kfParticle.GetPy() << ", " << kfParticle.GetPz() << ")";
     
     o2::gpu::gpustd::array<float, 3> xyz, pxpypz;
     o2::gpu::gpustd::array<float, 21> cv;
@@ -382,7 +393,12 @@ class StrangenessTracker
     track = o2::track::TrackParCovF(xyz, pxpypz, cv, sign, true, pid);
 
     // position check
-    LOG(info) << "Position of TrackParCov after transformation: (" << track.getX() << ", " << track.getY() << ", " << track.getZ() << ")";
+    std::array<float, 3> xyzGlo, pxpypzGlo;
+    track.getXYZGlo(xyzGlo);
+    track.getPxPyPzGlo(pxpypzGlo);
+    LOG(debug) << "Position of TrackParCov after transformation: (" << track.getX() << ", " << track.getY() << ", " << track.getZ() << ")";
+    LOG(debug) << "Glo position of TrackParCov after transformation: (" << xyzGlo[0] << ", " << xyzGlo[1] << ", " << xyzGlo[2] << ")";
+    // LOG(info) << "Glo momentum of TrackParCov after transformation: (" << pxpypzGlo[0] << ", " << pxpypzGlo[1] << ", " << pxpypzGlo[2] << ")";
 
     return true;
   }
@@ -468,7 +484,9 @@ class StrangenessTracker
   std::array<GIndex, 2> mV0dauIDs;                       // V0 daughter IDs
   KFParticle kfpMother;                                  // mother KFParticle
   o2::track::PID pidV0;                                  // PID hypothesis for the V0 fitting
+  o2::track::PID pidV0comp;                                  // commpeting PID hypothesis for the V0 fitting
   o2::track::PID pidCasc;                                // PID hypothesis for the cascade fitting
+  o2::track::PID pidCascComp;                                // competing PID hypothesis for the cascade fitting
 
   ClassDefNV(StrangenessTracker, 1);
 };
