@@ -43,6 +43,16 @@ struct StrangeTrack {
   std::array<float, 3> mIUMom;
   float mDecayPt;
   float mGeoChi2;
+  float mGeoChi2KFcreation;
+  float mMotherZ;
+  float mMotherZkf;
+  float mMotherR;
+  float mMotherRkf;
+  float mMotherErrZ;
+  float mMotherErrZkf;
+
+  float mMassCascV0;
+  float mChargeCascV0;
 };
 
 } // namespace dataformats

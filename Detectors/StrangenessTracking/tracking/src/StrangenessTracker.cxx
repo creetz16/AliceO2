@@ -270,7 +270,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     auto& clus = trackClusters[iClus];
     auto& compClus = trackClusSizes[iClus];
     int nUpdOld = nUpdates;
-    double clusRad = sqrt(clus.getX() * clus.getX() - clus.getY() * clus.getY());
+    double clusRad = sqrt(clus.getX() * clus.getX() + clus.getY() * clus.getY());
     auto diffR = decayR - clusRad;
     auto relDiffR = diffR / decayR;
     // Look for the Mother if the Decay radius allows for it, within a tolerance
@@ -332,7 +332,18 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       LOG(debug) << "Cascade V0 refit failed";
       return false;
     }
-
+    // check cascade V0 mass and charge
+    std::array<float, 3> momPos, momNeg;
+    mDaughterTracks[kV0DauPos].getPxPyPzGlo(momPos);
+    mDaughterTracks[kV0DauNeg].getPxPyPzGlo(momNeg);
+    if (mDaughterTracks[kBach].getCharge() < 0) {
+      mStrangeTrack.mMassCascV0 = calcMotherMass(momPos, momNeg, PID::Proton, PID::Pion);
+      mStrangeTrack.mChargeCascV0 = cascV0Upd.getCharge();
+    } else if (mDaughterTracks[kBach].getCharge() > 0) {
+      mStrangeTrack.mMassCascV0 = calcMotherMass(momPos, momNeg, PID::Pion, PID::Proton);
+      mStrangeTrack.mChargeCascV0 = cascV0Upd.getCharge();
+    }
+    
     try {
       nCand = mFitterV0.process(cascV0Upd, mDaughterTracks[kBach]);
     } catch (std::runtime_error& e) {
