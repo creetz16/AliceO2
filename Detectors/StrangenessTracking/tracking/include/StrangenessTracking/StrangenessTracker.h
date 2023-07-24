@@ -204,7 +204,7 @@ class StrangenessTracker
     return true;
   };
 
-  bool createKFCascade(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, const o2::track::TrackParCov& bachTrack, PID pidMother)
+  bool createKFCascade(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, const o2::track::TrackParCov& bachTrack, PID pidMother, bool fillV0mass)
     {
 
       float massPosDaughter, massNegDaughter;
@@ -234,6 +234,14 @@ class StrangenessTracker
       if (mStrParams->kfMassConst) {
         KFV0.SetNonlinearMassConstraint(o2::constants::physics::MassLambda);
       }
+      // save KFV0 mass and charge
+      if (fillV0mass == true) {
+        float M, SigmaM;
+        KFV0.GetMass(M, SigmaM);
+        mStrangeTrack.mMassCascV0 = M;
+        mStrangeTrack.mChargeCascV0 = KFV0.GetQ();
+      }
+
 
       int nCascDaughters = 2;
       KFParticle kfpBach;

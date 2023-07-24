@@ -132,7 +132,7 @@ void StrangenessTracker::process()
     // fill Glo position in histogram
     float motherZ = xyzGloV0[2];
     float motherR = sqrt(xyzGloV0[0] * xyzGloV0[0] + xyzGloV0[1] * xyzGloV0[1]);
-    float cov20 = covV0[20];
+    float motherErrZ = sqrt(fabs(v0.getSigmaZ2()));
     
     if (!createKFV0(posTrack, negTrack, pidV0)) { // reconstruct V0 with KF using Hypertriton PID // PID::HyperTriton
       continue;
@@ -140,7 +140,7 @@ void StrangenessTracker::process()
     
     float motherZkf = kfpMother.GetZ();
     float motherRkf = sqrt(kfpMother.GetX() * kfpMother.GetX() + kfpMother.GetY() * kfpMother.GetY());
-    float cov20kf = kfpMother.GetCovariance(20);
+    float motherErrZkf = kfpMother.GetErrZ();
 
     o2::track::TrackParCovF correctedV0;
     if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) { // convert KFParticle V0 to TrackParCov object
@@ -153,8 +153,8 @@ void StrangenessTracker::process()
     mStrangeTrack.mMotherZkf = motherZkf;
     mStrangeTrack.mMotherR = motherR;
     mStrangeTrack.mMotherRkf = motherRkf;
-    mStrangeTrack.mMotherCov20 = cov20;
-    mStrangeTrack.mMotherCov20kf = cov20kf;
+    mStrangeTrack.mMotherErrZ = motherErrZ;
+    mStrangeTrack.mMotherErrZkf = motherErrZkf;
 
     mStrangeTrack.mGeoChi2KFcreation = kfpMother.GetChi2();
 
@@ -230,14 +230,14 @@ void StrangenessTracker::process()
     // get Glo z position and radius before KFParticle creation
     float motherZ = xyzGloCasc[2];
     float motherR = sqrt(xyzGloCasc[0] * xyzGloCasc[0] + xyzGloCasc[1] * xyzGloCasc[1]);
-    float cov20 = covCasc[20];
-    if (!createKFCascade(posTrack, negTrack, bachTrack, pidCasc)) { // reconstruct cascade with KF using XiMinus PID // PID::XiMinus
+    float motherErrZ = sqrt(fabs(casc.getSigmaZ2()));
+    if (!createKFCascade(posTrack, negTrack, bachTrack, pidCasc, false)) { // reconstruct cascade with KF using XiMinus PID // PID::XiMinus
       continue;
     }
 
     float motherZkf = kfpMother.GetZ();
     float motherRkf = sqrt(kfpMother.GetX() * kfpMother.GetX() + kfpMother.GetY() * kfpMother.GetY());
-    float cov20kf = kfpMother.GetCovariance(20);
+    float motherErrZkf = kfpMother.GetErrZ();
 
     o2::track::TrackParCovF cascade;
     if (!getTrackParCovFromKFP(kfpMother, pidCasc, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object // PID::XiMinus
@@ -250,8 +250,8 @@ void StrangenessTracker::process()
     mStrangeTrack.mMotherZkf = motherZkf;
     mStrangeTrack.mMotherR = motherR;
     mStrangeTrack.mMotherRkf = motherRkf;
-    mStrangeTrack.mMotherCov20 = cov20;
-    mStrangeTrack.mMotherCov20kf = cov20kf;
+    mStrangeTrack.mMotherErrZ = motherErrZ;
+    mStrangeTrack.mMotherErrZkf = motherErrZkf;
 
     mStrangeTrack.mGeoChi2KFcreation = kfpMother.GetChi2();
 
@@ -437,7 +437,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
     else if (mStrangeTrack.mPartType == dataformats::kStrkCascade) {
 
       // create Omega cascade and fill mass
-      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], pidCascComp)) {
+      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], pidCascComp, false)) {
         return false;
       }
       float M, SigmaM;
@@ -445,7 +445,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       mStrangeTrack.mMasses[1] = M;
 
       // recreate XiMinus cascade
-      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], pidCasc)) {
+      if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], pidCasc, true)) {
         return false;
       }
 

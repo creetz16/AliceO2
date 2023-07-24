@@ -47,8 +47,11 @@ struct StrangeTrack {
   float mMotherZkf;
   float mMotherR;
   float mMotherRkf;
-  float mMotherCov20;
-  float mMotherCov20kf;
+  float mMotherErrZ;
+  float mMotherErrZkf;
+
+  float mMassCascV0;
+  float mChargeCascV0;
 };
 
 } // namespace dataformats
