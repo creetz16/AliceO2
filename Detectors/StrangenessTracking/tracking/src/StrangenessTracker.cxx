@@ -142,6 +142,10 @@ void StrangenessTracker::process()
     float motherRkf = sqrt(kfpMother.GetX() * kfpMother.GetX() + kfpMother.GetY() * kfpMother.GetY());
     float motherErrZkf = kfpMother.GetErrZ();
 
+    float M, SigmaM;
+    kfpMother.GetMass(M, SigmaM);
+    mStrangeTrack.mMassInit = M;
+
     o2::track::TrackParCovF correctedV0;
     if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) { // convert KFParticle V0 to TrackParCov object
         continue;
@@ -238,6 +242,10 @@ void StrangenessTracker::process()
     float motherZkf = kfpMother.GetZ();
     float motherRkf = sqrt(kfpMother.GetX() * kfpMother.GetX() + kfpMother.GetY() * kfpMother.GetY());
     float motherErrZkf = kfpMother.GetErrZ();
+
+    float M, SigmaM;
+    kfpMother.GetMass(M, SigmaM);
+    mStrangeTrack.mMassInit = M;
 
     o2::track::TrackParCovF cascade;
     if (!getTrackParCovFromKFP(kfpMother, pidCasc, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object // PID::XiMinus
