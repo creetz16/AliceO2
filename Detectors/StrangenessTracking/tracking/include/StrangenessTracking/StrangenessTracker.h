@@ -140,7 +140,7 @@ class StrangenessTracker
     return std::sqrt(e2Mother - p2Mother);
   }
 
-  bool recreateV0(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, V0& newV0)
+  bool recreateV0(const o2::track::TrackParCov& posTrack, const o2::track::TrackParCov& negTrack, V0& newV0, bool fillMass)
   {
 
     int nCand;
@@ -163,6 +163,15 @@ class StrangenessTracker
     propNeg.getPxPyPzGlo(pN);
     std::array<float, 3> pV0 = {pP[0] + pN[0], pP[1] + pN[1], pP[2] + pN[2]};
     newV0 = V0(v0XYZ, pV0, mFitterV0.calcPCACovMatrixFlat(0), propPos, propNeg, mV0dauIDs[kV0DauPos], mV0dauIDs[kV0DauNeg], PID::HyperTriton);
+
+    if (fillMass) {
+      if (posTrack.getAbsCharge() == 2) {
+        mStrangeTrack.mMassInit = calcMotherMass(pP, pN, PID::Helium3, PID::Pion); // Hypertriton invariant mass at decay vertex
+      } else {
+        mStrangeTrack.mMassInit = calcMotherMass(pP, pN, PID::Pion, PID::Helium3); // Anti-Hypertriton invariant mass at decay vertex
+      }
+    }
+
     return true;
   };
 
