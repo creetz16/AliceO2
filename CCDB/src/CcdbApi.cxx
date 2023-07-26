@@ -21,6 +21,8 @@
 #include "CommonUtils/FileSystemUtils.h"
 #include "CommonUtils/MemFileHelper.h"
 #include "MemoryResources/MemoryResources.h"
+#include "Framework/DefaultsHelpers.h"
+#include "Framework/DataTakingContext.h"
 #include <chrono>
 #include <memory>
 #include <sstream>
@@ -55,9 +57,17 @@ unique_ptr<TJAlienCredentials> CcdbApi::mJAlienCredentials = nullptr;
 
 CcdbApi::CcdbApi()
 {
+  using namespace o2::framework;
   setUniqueAgentID();
 
-  mIsCCDBDownloaderEnabled = getenv("ALICEO2_ENABLE_MULTIHANDLE_CCDBAPI") && atoi(getenv("ALICEO2_ENABLE_MULTIHANDLE_CCDBAPI"));
+  DeploymentMode deploymentMode = DefaultsHelpers::deploymentMode();
+  mIsCCDBDownloaderEnabled = 0;
+  if (deploymentMode == DeploymentMode::OnlineDDS && deploymentMode == DeploymentMode::OnlineECS && deploymentMode == DeploymentMode::OnlineAUX && deploymentMode == DeploymentMode::FST) {
+    mIsCCDBDownloaderEnabled = 1;
+  }
+  if (getenv("ALICEO2_ENABLE_MULTIHANDLE_CCDBAPI")) {
+    mIsCCDBDownloaderEnabled = atoi(getenv("ALICEO2_ENABLE_MULTIHANDLE_CCDBAPI"));
+  }
   if (mIsCCDBDownloaderEnabled) {
     mDownloader = new CCDBDownloader();
   }
@@ -172,6 +182,11 @@ void CcdbApi::init(std::string const& host)
 
   LOGP(info, "Init CcdApi with UserAgentID: {}, Host: {}{}", mUniqueAgentID, host,
        mInSnapshotMode ? "(snapshot readonly mode)" : snapshotReport.c_str());
+}
+
+void CcdbApi::runDownloaderLoop(bool noWait)
+{
+  mDownloader->runLoop(noWait);
 }
 
 // A helper function used in a few places. Updates a ROOT file with meta/header information.
@@ -311,15 +326,11 @@ int CcdbApi::storeAsBinaryFile(const char* buffer, size_t size, const std::strin
   checkMetadataKeys(metadata);
 
   if (curl != nullptr) {
-    struct curl_httppost* formpost = nullptr;
-    struct curl_httppost* lastptr = nullptr;
-    curl_formadd(&formpost,
-                 &lastptr,
-                 CURLFORM_COPYNAME, "send",
-                 CURLFORM_BUFFER, filename.c_str(),
-                 CURLFORM_BUFFERPTR, buffer, //.Buffer(),
-                 CURLFORM_BUFFERLENGTH, size,
-                 CURLFORM_END);
+    auto mime = curl_mime_init(curl);
+    auto field = curl_mime_addpart(mime);
+    curl_mime_name(field, "send");
+    curl_mime_filedata(field, filename.c_str());
+    curl_mime_data(field, buffer, size);
 
     struct curl_slist* headerlist = nullptr;
     static const char buf[] = "Expect:";
@@ -327,8 +338,8 @@ int CcdbApi::storeAsBinaryFile(const char* buffer, size_t size, const std::strin
 
     curlSetSSLOptions(curl);
 
+    curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
     curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headerlist);
-    curl_easy_setopt(curl, CURLOPT_HTTPPOST, formpost);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
 
@@ -352,10 +363,10 @@ int CcdbApi::storeAsBinaryFile(const char* buffer, size_t size, const std::strin
     /* always cleanup */
     curl_easy_cleanup(curl);
 
-    /* then cleanup the formpost chain */
-    curl_formfree(formpost);
     /* free slist */
     curl_slist_free_all(headerlist);
+    /* free mime */
+    curl_mime_free(mime);
   } else {
     LOGP(alarm, "curl initialization failure");
     returnValue = -2;
@@ -607,6 +618,7 @@ bool CcdbApi::receiveObject(void* dataHolder, std::string const& path, std::map<
   CURL* curlHandle;
 
   curlHandle = curl_easy_init();
+  curl_easy_setopt(curlHandle, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
 
   if (curlHandle != nullptr) {
 
@@ -1036,6 +1048,7 @@ void* CcdbApi::retrieveFromTFile(std::type_info const& tinfo, std::string const&
   // normal mode follows
 
   CURL* curl_handle = curl_easy_init();
+  curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
   string fullUrl = getFullUrlForRetrieval(curl_handle, path, metadata, timestamp); // todo check if function still works correctly in case mInSnapshotMode
   // if we are in snapshot mode we can simply open the file; extract the object and return
   if (mInSnapshotMode) {
@@ -1084,6 +1097,7 @@ std::string CcdbApi::list(std::string const& path, bool latestOnly, std::string 
   if (curl != nullptr) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWrite_CallbackFunc_StdString2);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &result);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
 
     struct curl_slist* headers = nullptr;
     headers = curl_slist_append(headers, (string("Accept: ") + returnFormat).c_str());
@@ -1129,6 +1143,7 @@ void CcdbApi::deleteObject(std::string const& path, long timestamp) const
   curl = curl_easy_init();
   if (curl != nullptr) {
     curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
     curlSetSSLOptions(curl);
 
     for (size_t hostIndex = 0; hostIndex < hostsPool.size(); hostIndex++) {
@@ -1155,6 +1170,7 @@ void CcdbApi::truncate(std::string const& path) const
     fullUrl << url << "/truncate/" << path;
 
     curl = curl_easy_init();
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
     if (curl != nullptr) {
       curl_easy_setopt(curl, CURLOPT_URL, fullUrl.str().c_str());
 
@@ -1182,6 +1198,7 @@ bool CcdbApi::isHostReachable() const
   bool result = false;
 
   curl = curl_easy_init();
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
   if (curl) {
     for (size_t hostIndex = 0; hostIndex < hostsPool.size() && res != CURLE_OK; hostIndex++) {
       curl_easy_setopt(curl, CURLOPT_URL, mUrl.data());
@@ -1389,6 +1406,7 @@ int CcdbApi::updateMetadata(std::string const& path, std::map<std::string, std::
 {
   int ret = -1;
   CURL* curl = curl_easy_init();
+  curl_easy_setopt(curl, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
   if (curl != nullptr) {
     CURLcode res;
     stringstream fullUrl;
@@ -1513,6 +1531,7 @@ void CcdbApi::loadFileToMemory(o2::pmr::vector<char>& dest, std::string const& p
     fromSnapshot = 2;
   } else { // look on the server
     CURL* curl_handle = curl_easy_init();
+    curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, mUniqueAgentID.c_str());
     string fullUrl = getFullUrlForRetrieval(curl_handle, path, metadata, timestamp);
 
     curl_slist* options_list = nullptr;
@@ -1788,7 +1807,11 @@ CURLcode CcdbApi::CURL_perform(CURL* handle) const
   if (mIsCCDBDownloaderEnabled) {
     return mDownloader->perform(handle);
   }
-  return curl_easy_perform(handle);
+  CURLcode result;
+  for (int i = 1; i <= mCurlRetries && (result = curl_easy_perform(handle)) != CURLE_OK; i++) {
+    usleep(mCurlDelayRetries * i);
+  }
+  return result;
 }
 
 } // namespace o2

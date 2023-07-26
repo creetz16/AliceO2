@@ -22,6 +22,7 @@
 #include "EMCALCalibration/EMCALChannelData.h"
 #include "EMCALCalibration/EMCALCalibExtractor.h"
 #include "EMCALCalibration/EMCALCalibParams.h"
+#include "EMCALCalib/GainCalibrationFactors.h"
 #include "DetectorsCalibration/TimeSlotCalibration.h"
 #include "DetectorsCalibration/TimeSlot.h"
 #include "DataFormatsEMCAL/Cell.h"
@@ -95,6 +96,8 @@ class EMCALChannelCalibrator : public o2::calibration::TimeSlotCalibration<DataI
   std::shared_ptr<EMCALCalibExtractor> getCalibExtractor() { return mCalibrator; } // return shared pointer!
   /// \brief setter for mCalibrator
   void SetCalibExtractor(std::shared_ptr<EMCALCalibExtractor> extr) { mCalibrator = extr; };
+
+  bool setGainCalibrationFactors(o2::emcal::GainCalibrationFactors* gainCalibFactors);
 
  private:
   int mNBins = 0;          ///< bins of the histogram for passing
@@ -283,6 +286,11 @@ bool EMCALChannelCalibrator<DataInput, DataOutput>::adoptSavedData(const o2::cal
     return true;
 
   auto& cont = o2::calibration::TimeSlotCalibration<DataInput>::getSlots();
+
+  if (cont.size() == 0) {
+    LOG(warning) << "cont.size() is 0, calibration objects from previous run cannot be loaded...";
+    return true;
+  }
   auto& slot = cont.at(0);
   DataInput* c = slot.getContainer();
 
@@ -312,6 +320,22 @@ bool EMCALChannelCalibrator<DataInput, DataOutput>::adoptSavedData(const o2::cal
     return false;
   }
   c->setNEvents(hEvents->GetBinContent(1));
+
+  return true;
+}
+
+template <typename DataInput, typename DataOutput>
+bool EMCALChannelCalibrator<DataInput, DataOutput>::setGainCalibrationFactors(o2::emcal::GainCalibrationFactors* gainCalibFactors)
+{
+
+  auto& cont = o2::calibration::TimeSlotCalibration<DataInput>::getSlots();
+  if (cont.size() == 0) {
+    return false; // time slot object not yet there
+  }
+
+  auto& slot = cont.at(0);
+  DataInput* c = slot.getContainer();
+  c->setGainCalibFactors(gainCalibFactors);
 
   return true;
 }

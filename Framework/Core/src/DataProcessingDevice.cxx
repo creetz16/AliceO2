@@ -124,6 +124,12 @@ DeviceSpec const& getRunningDevice(RunningDeviceRef const& running, ServiceRegis
   return devices[running.index];
 }
 
+struct locked_execution {
+  ServiceRegistryRef& ref;
+  locked_execution(ServiceRegistryRef& ref_) : ref(ref_) { ref.lock(); }
+  ~locked_execution() { ref.unlock(); }
+};
+
 DataProcessingDevice::DataProcessingDevice(RunningDeviceRef running, ServiceRegistry& registry, ProcessingPolicies& policies)
   : mRunningDevice{running},
     mConfigRegistry{nullptr},
@@ -220,16 +226,20 @@ void run_completion(uv_work_t* handle, int status)
   using o2::monitoring::tags::Key;
   using o2::monitoring::tags::Value;
 
-  static std::function<void(ComputingQuotaOffer const&, ComputingQuotaStats&)> reportConsumedOffer = [&monitoring = ref.get<Monitoring>()](ComputingQuotaOffer const& accumulatedConsumed, ComputingQuotaStats& stats) {
+  static std::function<void(ComputingQuotaOffer const&, ComputingQuotaStats&)> reportConsumedOffer = [ref](ComputingQuotaOffer const& accumulatedConsumed, ComputingQuotaStats& stats) {
+    auto& dpStats = ref.get<DataProcessingStats>();
     stats.totalConsumedBytes += accumulatedConsumed.sharedMemory;
-    monitoring.send(Metric{(uint64_t)stats.totalConsumedBytes, "shm-offer-bytes-consumed"}.addTag(Key::Subsystem, Value::DPL));
-    monitoring.flushBuffer();
+
+    dpStats.updateStats({static_cast<short>(ProcessingStatsId::SHM_OFFER_BYTES_CONSUMED), DataProcessingStats::Op::Set, stats.totalConsumedBytes});
+    dpStats.processCommandQueue();
+    assert(stats.totalConsumedBytes == dpStats.metrics[(short)ProcessingStatsId::SHM_OFFER_BYTES_CONSUMED]);
   };
 
-  static std::function<void(ComputingQuotaOffer const&, ComputingQuotaStats const&)> reportExpiredOffer = [&monitoring = ref.get<Monitoring>()](ComputingQuotaOffer const& offer, ComputingQuotaStats const& stats) {
-    monitoring.send(Metric{(uint64_t)stats.totalExpiredOffers, "resource-offer-expired"}.addTag(Key::Subsystem, Value::DPL));
-    monitoring.send(Metric{(uint64_t)stats.totalExpiredBytes, "arrow-bytes-expired"}.addTag(Key::Subsystem, Value::DPL));
-    monitoring.flushBuffer();
+  static std::function<void(ComputingQuotaOffer const&, ComputingQuotaStats const&)> reportExpiredOffer = [ref](ComputingQuotaOffer const& offer, ComputingQuotaStats const& stats) {
+    auto& dpStats = ref.get<DataProcessingStats>();
+    dpStats.updateStats({static_cast<short>(ProcessingStatsId::RESOURCE_OFFER_EXPIRED), DataProcessingStats::Op::Set, stats.totalExpiredOffers});
+    dpStats.updateStats({static_cast<short>(ProcessingStatsId::ARROW_BYTES_EXPIRED), DataProcessingStats::Op::Set, stats.totalExpiredBytes});
+    dpStats.processCommandQueue();
   };
 
   for (auto& consumer : state.offerConsumers) {
@@ -352,6 +362,7 @@ void DataProcessingDevice::Init()
   context.statelessProcess = spec.algorithm.onProcess;
   context.statefulProcess = nullptr;
   context.error = spec.algorithm.onError;
+  context.initError = spec.algorithm.onInitError;
   TracyAppInfo(spec.name.data(), spec.name.size());
   ZoneScopedN("DataProcessingDevice::Init");
 
@@ -383,11 +394,67 @@ void DataProcessingDevice::Init()
 
   mConfigRegistry = std::make_unique<ConfigParamRegistry>(std::move(configStore));
 
+  // Setup the error handlers for init
+  if (context.initError) {
+    context.initErrorHandling = [&errorCallback = context.initError,
+                                 &serviceRegistry = mServiceRegistry](RuntimeErrorRef e) {
+      ZoneScopedN("Error handling");
+      /// FIXME: we should pass the salt in, so that the message
+      ///        can access information which were stored in the stream.
+      ServiceRegistryRef ref{serviceRegistry, ServiceRegistry::globalDeviceSalt()};
+      auto& err = error_from_ref(e);
+      LOGP(error, "Exception caught: {} ", err.what);
+      demangled_backtrace_symbols(err.backtrace, err.maxBacktrace, STDERR_FILENO);
+      auto& stats = ref.get<DataProcessingStats>();
+      stats.updateStats({(int)ProcessingStatsId::EXCEPTION_COUNT, DataProcessingStats::Op::Add, 1});
+      InitErrorContext errorContext{ref, e};
+      errorCallback(errorContext);
+    };
+  } else {
+    context.initErrorHandling = [&serviceRegistry = mServiceRegistry](RuntimeErrorRef e) {
+      ZoneScopedN("Error handling");
+      auto& err = error_from_ref(e);
+      /// FIXME: we should pass the salt in, so that the message
+      ///        can access information which were stored in the stream.
+      LOGP(error, "Exception caught: {} ", err.what);
+      ServiceRegistryRef ref{serviceRegistry, ServiceRegistry::globalDeviceSalt()};
+      demangled_backtrace_symbols(err.backtrace, err.maxBacktrace, STDERR_FILENO);
+      auto& stats = ref.get<DataProcessingStats>();
+      stats.updateStats({(int)ProcessingStatsId::EXCEPTION_COUNT, DataProcessingStats::Op::Add, 1});
+      exit(1);
+    };
+  }
+
   context.expirationHandlers.clear();
   context.init = spec.algorithm.onInit;
   if (context.init) {
+    static bool noCatch = getenv("O2_NO_CATCHALL_EXCEPTIONS") && strcmp(getenv("O2_NO_CATCHALL_EXCEPTIONS"), "0");
     InitContext initContext{*mConfigRegistry, mServiceRegistry};
-    context.statefulProcess = context.init(initContext);
+
+    if (noCatch) {
+      try {
+        context.statefulProcess = context.init(initContext);
+      } catch (o2::framework::RuntimeErrorRef e) {
+        ZoneScopedN("error handling");
+        if (context.initErrorHandling) {
+          (context.initErrorHandling)(e);
+        }
+      }
+    } else {
+      try {
+        context.statefulProcess = context.init(initContext);
+      } catch (std::exception& ex) {
+        ZoneScopedN("error handling");
+        /// Convert a standard exception to a RuntimeErrorRef
+        /// Notice how this will lose the backtrace information
+        /// and report the exception coming from here.
+        auto e = runtime_error(ex.what());
+        (context.initErrorHandling)(e);
+      } catch (o2::framework::RuntimeErrorRef e) {
+        ZoneScopedN("error handling");
+        (context.initErrorHandling)(e);
+      }
+    }
   }
   auto& state = ref.get<DeviceState>();
   state.inputChannelInfos.resize(spec.inputChannels.size());
@@ -667,7 +734,7 @@ void DataProcessingDevice::initPollers()
   auto& state = ref.get<DeviceState>();
   // We add a timer only in case a channel poller is not there.
   if ((context.statefulProcess != nullptr) || (context.statelessProcess != nullptr)) {
-    for (auto& [channelName, channel] : fChannels) {
+    for (auto& [channelName, channel] : GetChannels()) {
       InputChannelInfo* channelInfo;
       for (size_t ci = 0; ci < spec.inputChannels.size(); ++ci) {
         auto& channelSpec = spec.inputChannels[ci];
@@ -741,7 +808,7 @@ void DataProcessingDevice::initPollers()
         LOGP(detail, "No input channels. Setting exit transition timeout to 0.");
         deviceContext.exitTransitionTimeout = 0;
       }
-      for (auto& [channelName, channel] : fChannels) {
+      for (auto& [channelName, channel] : GetChannels()) {
         if (channelName.rfind(spec.channelPrefix + "from_internal-dpl", 0) == 0) {
           LOGP(detail, "{} is an internal channel. Not polling.", channelName);
           continue;
@@ -874,7 +941,7 @@ void DataProcessingDevice::InitTask()
   deviceContext.expectedRegionCallbacks = std::stoi(fConfig->GetValue<std::string>("expected-region-callbacks"));
   deviceContext.exitTransitionTimeout = std::stoi(fConfig->GetValue<std::string>("exit-transition-timeout"));
 
-  for (auto& channel : fChannels) {
+  for (auto& channel : GetChannels()) {
     channel.second.at(0).Transport()->SubscribeToRegionEvents([&context = deviceContext,
                                                                &registry = mServiceRegistry,
                                                                &pendingRegionInfos = mPendingRegionInfos,
@@ -997,6 +1064,7 @@ void DataProcessingDevice::fillContext(DataProcessorContext& context, DeviceCont
       }
     };
   }
+
   /// We must make sure there is no optional
   /// if we want to optimize the forwarding
   context.canForwardEarly = (spec.forwards.empty() == false) && mProcessingPolicies.earlyForward != EarlyForwardPolicy::NEVER;
@@ -1192,6 +1260,10 @@ void DataProcessingDevice::Run()
       auto& queue = ref.get<AsyncQueue>();
       auto oldestPossibleTimeslice = relayer.getOldestPossibleOutput();
       AsyncQueueHelpers::run(queue, {oldestPossibleTimeslice.timeslice.value});
+      if (shouldNotWait == false) {
+        auto& dpContext = ref.get<DataProcessorContext>();
+        dpContext.preLoopCallbacks(ref);
+      }
       uv_run(state.loop, shouldNotWait ? UV_RUN_NOWAIT : UV_RUN_ONCE);
       if ((state.loopReason & state.tracingFlags) != 0) {
         state.severityStack.push_back((int)fair::Logger::GetConsoleSeverity());
@@ -1246,16 +1318,16 @@ void DataProcessingDevice::Run()
     if (streamRef.index != -1) {
       // Synchronous execution of the callbacks. This will be moved in the
       // moved in the on_socket_polled once we have threading in place.
-      auto& handle = mHandles[streamRef.index];
-      auto& stream = mStreams[streamRef.index];
+      uv_work_t& handle = mHandles[streamRef.index];
+      TaskStreamInfo& stream = mStreams[streamRef.index];
       handle.data = &mStreams[streamRef.index];
 
       static std::function<void(ComputingQuotaOffer const&, ComputingQuotaStats const& stats)> reportExpiredOffer = [&registry = mServiceRegistry](ComputingQuotaOffer const& offer, ComputingQuotaStats const& stats) {
         ServiceRegistryRef ref{registry};
-        auto& monitoring = ref.get<Monitoring>();
-        monitoring.send(Metric{(uint64_t)stats.totalExpiredOffers, "resource-offer-expired"}.addTag(Key::Subsystem, Value::DPL));
-        monitoring.send(Metric{(uint64_t)stats.totalExpiredBytes, "arrow-bytes-expired"}.addTag(Key::Subsystem, Value::DPL));
-        monitoring.flushBuffer();
+        auto& dpStats = ref.get<DataProcessingStats>();
+        dpStats.updateStats({static_cast<short>(ProcessingStatsId::RESOURCE_OFFER_EXPIRED), DataProcessingStats::Op::Set, stats.totalExpiredOffers});
+        dpStats.updateStats({static_cast<short>(ProcessingStatsId::ARROW_BYTES_EXPIRED), DataProcessingStats::Op::Set, stats.totalExpiredBytes});
+        dpStats.processCommandQueue(); 
       };
       auto ref = ServiceRegistryRef{mServiceRegistry};
 
