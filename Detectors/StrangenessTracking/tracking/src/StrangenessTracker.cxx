@@ -190,20 +190,7 @@ void StrangenessTracker::process()
     mV0dauIDs[kV0DauPos] = cascV0.getProngID(kV0DauPos);
     mV0dauIDs[kV0DauNeg] = cascV0.getProngID(kV0DauNeg);
 
-    V0 cascV0fit;
-    if (!recreateV0(cascV0.getProng(kV0DauPos), cascV0.getProng(kV0DauNeg), cascV0fit, false)) {
-      continue;
-    }
-    if (!mFitterV0.process(cascV0fit, casc.getBachelorTrack())) {
-      continue;
-    }
-    if (!mFitterV0.propagateTracksToVertex()) {
-      continue;
-    }
-    std::array<float, 3> momV0init, mombachinit;
-    mFitterV0.getTrack(0).getPxPyPzGlo(momV0init);                                            // V0 momentum at decay vertex
-    mFitterV0.getTrack(1).getPxPyPzGlo(mombachinit);                                          // bachelor momentum at decay vertex
-    mStrangeTrack.mMassInit = calcMotherMass(momV0init, mombachinit, PID::Lambda, PID::Pion); // Xi invariant mass at decay vertex
+    mStrangeTrack.mMassInit = sqrt(casc.calcMass2());
 
     mStrangeTrack.mPartType = dataformats::kStrkCascade;
     // first: bachelor, second: V0 pos, third: V0 neg
