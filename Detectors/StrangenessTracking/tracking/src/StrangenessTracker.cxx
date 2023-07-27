@@ -123,6 +123,9 @@ void StrangenessTracker::process()
     auto alphaV0 = calcV0alpha(v0);
     alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
 
+    // mStrangeTrack.mMassInit = sqrt(v0.calcMass2());
+    // LOG(info) << "Check mMassInit v0: " << mStrangeTrack.mMassInit;
+
     std::array<float, 3> xyzGloV0;
     std::array<float, 21> covV0;
     v0.getXYZGlo(xyzGloV0);
@@ -145,6 +148,7 @@ void StrangenessTracker::process()
     float M, SigmaM;
     kfpMother.GetMass(M, SigmaM);
     mStrangeTrack.mMassInit = M;
+    LOG(info) << "Check mMassInit v0: " << mStrangeTrack.mMassInit;
 
     o2::track::TrackParCovF correctedV0;
     if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) { // convert KFParticle V0 to TrackParCov object
@@ -224,6 +228,9 @@ void StrangenessTracker::process()
     auto posTrack = cascV0.getProng(kV0DauPos);
     auto negTrack = cascV0.getProng(kV0DauNeg);
     auto bachTrack = casc.getBachelorTrack();
+
+    // mStrangeTrack.mMassInit = sqrt(casc.calcMass2());
+    // LOG(info) << "Check mMassInit cascade: " << mStrangeTrack.mMassInit;
     
     std::array<float, 3> xyzGloCasc;
     std::array<float, 21> covCasc;
@@ -246,6 +253,7 @@ void StrangenessTracker::process()
     float M, SigmaM;
     kfpMother.GetMass(M, SigmaM);
     mStrangeTrack.mMassInit = M;
+    LOG(info) << "Check mMassInitKF cascade: " << mStrangeTrack.mMassInit;
 
     o2::track::TrackParCovF cascade;
     if (!getTrackParCovFromKFP(kfpMother, pidCasc, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object // PID::XiMinus
