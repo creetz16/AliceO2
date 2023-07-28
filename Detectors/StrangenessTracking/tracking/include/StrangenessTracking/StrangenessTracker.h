@@ -124,19 +124,20 @@ class StrangenessTracker
     return (qPos - qNeg) / (qPos + qNeg);
   };
 
-  double calcMotherMass(const std::array<float, 3>& pDauFirst, const std::array<float, 3>& pDauSecond, PID pidDauFirst, PID pidDauSecond)
+  float calcMotherMass(const std::array<float, 3>& pDauFirst, const std::array<float, 3>& pDauSecond, PID pidDauFirst, PID pidDauSecond)
   {
-    double m2DauFirst = PID::getMass2(pidDauFirst);
-    double m2DauSecond = PID::getMass2(pidDauSecond);
-    double p2DauFirst = (pDauFirst[0] * pDauFirst[0]) + (pDauFirst[1] * pDauFirst[1]) + (pDauFirst[2] * pDauFirst[2]);
-    double p2DauSecond = (pDauSecond[0] * pDauSecond[0]) + (pDauSecond[1] * pDauSecond[1]) + (pDauSecond[2] * pDauSecond[2]);
+    LOG(info) << "calcMotherMass with float precision called!";
+    float m2DauFirst = PID::getMass2(pidDauFirst);
+    float m2DauSecond = PID::getMass2(pidDauSecond);
+    float p2DauFirst = (pDauFirst[0] * pDauFirst[0]) + (pDauFirst[1] * pDauFirst[1]) + (pDauFirst[2] * pDauFirst[2]);
+    float p2DauSecond = (pDauSecond[0] * pDauSecond[0]) + (pDauSecond[1] * pDauSecond[1]) + (pDauSecond[2] * pDauSecond[2]);
     float ePos = std::sqrt(p2DauFirst + m2DauFirst), eNeg = std::sqrt(p2DauSecond + m2DauSecond);
 
-    double e2Mother = (ePos + eNeg) * (ePos + eNeg);
-    double pxMother = (pDauFirst[0] + pDauSecond[0]);
-    double pyMother = (pDauFirst[1] + pDauSecond[1]);
-    double pzMother = (pDauFirst[2] + pDauSecond[2]);
-    double p2Mother = (pxMother * pxMother) + (pyMother * pyMother) + (pzMother * pzMother);
+    float e2Mother = (ePos + eNeg) * (ePos + eNeg);
+    float pxMother = (pDauFirst[0] + pDauSecond[0]);
+    float pyMother = (pDauFirst[1] + pDauSecond[1]);
+    float pzMother = (pDauFirst[2] + pDauSecond[2]);
+    float p2Mother = (pxMother * pxMother) + (pyMother * pyMother) + (pzMother * pzMother);
     return std::sqrt(e2Mother - p2Mother);
   }
 
