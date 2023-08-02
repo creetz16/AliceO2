@@ -54,6 +54,18 @@ struct StrangeTrack {
   float mMassCascV0;
   float mChargeCascV0;
   float mMassInit;
+  float mErrX;
+  float mErrY;
+  float mErrZ;
+  float mErrPx;
+  float mErrPy;
+  float mErrPz;
+  float mErrXV0;
+  float mErrYV0;
+  float mErrZV0;
+  float mErrPxV0;
+  float mErrPyV0;
+  float mErrPzV0;
 };
 
 } // namespace dataformats

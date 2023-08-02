@@ -163,6 +163,15 @@ void StrangenessTracker::process()
             mStrangeTrack.mMasses[0] = calcMotherMass(momPos, momNeg, PID::Pion, PID::Helium3); // Anti-Hypertriton invariant mass at decay vertex
             mStrangeTrack.mMasses[1] = calcMotherMass(momPos, momNeg, PID::Pion, PID::Alpha);   // Anti-Hyperhydrogen4Lam invariant mass at decay vertex
           }
+          std::array<float, 21> cvVtx;
+          decayVtxTrackClone.getCovXYZPxPyPzGlo(cvVtx);
+          mStrangeTrack.mErrX = sqrt(abs(cvVtx[0]));
+          mStrangeTrack.mErrY = sqrt(abs(cvVtx[2]));
+          mStrangeTrack.mErrZ = sqrt(abs(cvVtx[5]));
+          mStrangeTrack.mErrPx = sqrt(abs(cvVtx[9]));
+          mStrangeTrack.mErrPy = sqrt(abs(cvVtx[14]));
+          mStrangeTrack.mErrPz = sqrt(abs(cvVtx[20]));
+          LOG(info) << "Filled V0 vertex covariances.";
 
           LOG(debug) << "ITS Track matched with a V0 decay topology ....";
           LOG(debug) << "Number of ITS track clusters attached: " << mITStrack.getNumberOfClusters();
@@ -229,6 +238,15 @@ void StrangenessTracker::process()
           mFitterV0.getTrack(1).getPxPyPzGlo(mombach);                                    // bachelor momentum at decay vertex
           mStrangeTrack.mMasses[0] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Pion); // Xi invariant mass at decay vertex
           mStrangeTrack.mMasses[1] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Kaon); // Omega invariant mass at decay vertex
+          std::array<float, 21> cvVtx;
+          decayVtxTrackClone.getCovXYZPxPyPzGlo(cvVtx);
+          mStrangeTrack.mErrX = sqrt(abs(cvVtx[0]));
+          mStrangeTrack.mErrY = sqrt(abs(cvVtx[2]));
+          mStrangeTrack.mErrZ = sqrt(abs(cvVtx[5]));
+          mStrangeTrack.mErrPx = sqrt(abs(cvVtx[9]));
+          mStrangeTrack.mErrPy = sqrt(abs(cvVtx[14]));
+          mStrangeTrack.mErrPz = sqrt(abs(cvVtx[20]));
+          LOG(info) << "Filled cascade vertex covariances.";
 
           LOG(debug) << "ITS Track matched with a Cascade decay topology ....";
           LOG(debug) << "Number of ITS track clusters attached: " << mITStrack.getNumberOfClusters();

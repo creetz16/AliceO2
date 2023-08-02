@@ -124,20 +124,20 @@ class StrangenessTracker
     return (qPos - qNeg) / (qPos + qNeg);
   };
 
-  float calcMotherMass(const std::array<float, 3>& pDauFirst, const std::array<float, 3>& pDauSecond, PID pidDauFirst, PID pidDauSecond)
+  double calcMotherMass(const std::array<float, 3>& pDauFirst, const std::array<float, 3>& pDauSecond, PID pidDauFirst, PID pidDauSecond)
   {
     LOG(info) << "calcMotherMass with float precision called!";
-    float m2DauFirst = PID::getMass2(pidDauFirst);
-    float m2DauSecond = PID::getMass2(pidDauSecond);
-    float p2DauFirst = (pDauFirst[0] * pDauFirst[0]) + (pDauFirst[1] * pDauFirst[1]) + (pDauFirst[2] * pDauFirst[2]);
-    float p2DauSecond = (pDauSecond[0] * pDauSecond[0]) + (pDauSecond[1] * pDauSecond[1]) + (pDauSecond[2] * pDauSecond[2]);
+    double m2DauFirst = PID::getMass2(pidDauFirst);
+    double m2DauSecond = PID::getMass2(pidDauSecond);
+    double p2DauFirst = (pDauFirst[0] * pDauFirst[0]) + (pDauFirst[1] * pDauFirst[1]) + (pDauFirst[2] * pDauFirst[2]);
+    double p2DauSecond = (pDauSecond[0] * pDauSecond[0]) + (pDauSecond[1] * pDauSecond[1]) + (pDauSecond[2] * pDauSecond[2]);
     float ePos = std::sqrt(p2DauFirst + m2DauFirst), eNeg = std::sqrt(p2DauSecond + m2DauSecond);
 
-    float e2Mother = (ePos + eNeg) * (ePos + eNeg);
-    float pxMother = (pDauFirst[0] + pDauSecond[0]);
-    float pyMother = (pDauFirst[1] + pDauSecond[1]);
-    float pzMother = (pDauFirst[2] + pDauSecond[2]);
-    float p2Mother = (pxMother * pxMother) + (pyMother * pyMother) + (pzMother * pzMother);
+    double e2Mother = (ePos + eNeg) * (ePos + eNeg);
+    double pxMother = (pDauFirst[0] + pDauSecond[0]);
+    double pyMother = (pDauFirst[1] + pDauSecond[1]);
+    double pzMother = (pDauFirst[2] + pDauSecond[2]);
+    double p2Mother = (pxMother * pxMother) + (pyMother * pyMother) + (pzMother * pzMother);
     return std::sqrt(e2Mother - p2Mother);
   }
 
@@ -172,6 +172,16 @@ class StrangenessTracker
         mStrangeTrack.mMassInit = calcMotherMass(pP, pN, PID::Pion, PID::Helium3); // Anti-Hypertriton invariant mass at decay vertex
       }
     }
+    auto V0track = mFitterV0.createParentTrackParCov();
+    std::array<float, 21> cvVtx;
+    V0track.getCovXYZPxPyPzGlo(cvVtx);
+    mStrangeTrack.mErrXV0 = sqrt(abs(cvVtx[0]));
+    mStrangeTrack.mErrYV0 = sqrt(abs(cvVtx[2]));
+    mStrangeTrack.mErrZV0 = sqrt(abs(cvVtx[5]));
+    mStrangeTrack.mErrPxV0 = sqrt(abs(cvVtx[9]));
+    mStrangeTrack.mErrPyV0 = sqrt(abs(cvVtx[14]));
+    mStrangeTrack.mErrPzV0 = sqrt(abs(cvVtx[20]));
+    LOG(info) << "Filled casc V0 vertex covariances.";
 
     return true;
   };
