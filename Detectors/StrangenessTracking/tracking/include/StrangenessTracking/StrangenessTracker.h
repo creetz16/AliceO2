@@ -236,12 +236,17 @@ class StrangenessTracker
       }
       // save KFV0 mass and charge
       if (fillV0mass == true) {
-        float M, SigmaM;
-        KFV0.GetMass(M, SigmaM);
+        double M, SigmaM;
+        KFV0.GetMass_d(M, SigmaM);
         mStrangeTrack.mMassCascV0 = M;
         mStrangeTrack.mChargeCascV0 = KFV0.GetQ();
+        mStrangeTrack.mErrXV0 = KFV0.GetErrX();
+        mStrangeTrack.mErrYV0 = KFV0.GetErrY();
+        mStrangeTrack.mErrZV0 = KFV0.GetErrZ();
+        mStrangeTrack.mErrPxV0 = KFV0.GetErrPx();
+        mStrangeTrack.mErrPyV0 = KFV0.GetErrPy();
+        mStrangeTrack.mErrPzV0 = KFV0.GetErrPz();
       }
-
 
       int nCascDaughters = 2;
       KFParticle kfpBach;
@@ -440,9 +445,10 @@ class StrangenessTracker
   }
 
   bool fillKFinfo(const KFParticle& kfParticle) {
-    float M, SigmaM;
-    kfParticle.GetMass(M, SigmaM);
+    double M, SigmaM;
+    kfParticle.GetMass_d(M, SigmaM);
     mStrangeTrack.mMasses[0] = M;
+    LOG(info) << "Filled KF mass with double precision.";
     mStrangeTrack.mDecayMom[0] = kfParticle.GetPx();
     mStrangeTrack.mDecayMom[1] = kfParticle.GetPy();
     mStrangeTrack.mDecayMom[2] = kfParticle.GetPz();
@@ -451,6 +457,13 @@ class StrangenessTracker
     mStrangeTrack.mDecayVtx[1] = kfParticle.GetY();
     mStrangeTrack.mDecayVtx[2] = kfParticle.GetZ();
     mStrangeTrack.mGeoChi2 = kfParticle.GetChi2();
+    mStrangeTrack.mErrX = kfParticle.GetErrX();
+    mStrangeTrack.mErrY = kfParticle.GetErrY();
+    mStrangeTrack.mErrZ = kfParticle.GetErrZ();
+    mStrangeTrack.mErrPx = kfParticle.GetErrPx();
+    mStrangeTrack.mErrPy = kfParticle.GetErrPy();
+    mStrangeTrack.mErrPz = kfParticle.GetErrPz();
+    LOG(info) << "Filled vertex covariances.";
     return true;
   }
 

@@ -145,8 +145,8 @@ void StrangenessTracker::process()
     float motherRkf = sqrt(kfpMother.GetX() * kfpMother.GetX() + kfpMother.GetY() * kfpMother.GetY());
     float motherErrZkf = kfpMother.GetErrZ();
 
-    float M, SigmaM;
-    kfpMother.GetMass(M, SigmaM);
+    double M, SigmaM;
+    kfpMother.GetMass_d(M, SigmaM);
     mStrangeTrack.mMassInit = M;
     LOG(info) << "Check mMassInit v0: " << mStrangeTrack.mMassInit;
 
@@ -250,8 +250,8 @@ void StrangenessTracker::process()
     float motherRkf = sqrt(kfpMother.GetX() * kfpMother.GetX() + kfpMother.GetY() * kfpMother.GetY());
     float motherErrZkf = kfpMother.GetErrZ();
 
-    float M, SigmaM;
-    kfpMother.GetMass(M, SigmaM);
+    double M, SigmaM;
+    kfpMother.GetMass_d(M, SigmaM);
     mStrangeTrack.mMassInit = M;
     LOG(info) << "Check mMassInitKF cascade: " << mStrangeTrack.mMassInit;
 
@@ -428,8 +428,8 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       if (!createKFV0(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], pidV0comp)) {
         return false;
       }
-      float M, SigmaM;
-      kfpMother.GetMass(M, SigmaM);
+      double M, SigmaM;
+      kfpMother.GetMass_d(M, SigmaM);
       mStrangeTrack.mMasses[1] = M;
 
       // recreate hypertriton V0
@@ -456,8 +456,8 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR)
       if (!createKFCascade(mDaughterTracks[kV0DauPos], mDaughterTracks[kV0DauNeg], mDaughterTracks[kBach], pidCascComp, false)) {
         return false;
       }
-      float M, SigmaM;
-      kfpMother.GetMass(M, SigmaM);
+      double M, SigmaM;
+      kfpMother.GetMass_d(M, SigmaM);
       mStrangeTrack.mMasses[1] = M;
 
       // recreate XiMinus cascade
