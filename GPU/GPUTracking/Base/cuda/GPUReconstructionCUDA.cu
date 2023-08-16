@@ -396,6 +396,7 @@ int GPUReconstructionCUDA::ExitDevice_Runtime()
   // Uninitialize CUDA
   GPUFailedMsg(cudaSetDevice(mDeviceId));
   SynchronizeGPU();
+  unregisterRemainingRegisteredMemory();
 
   for (unsigned int i = 0; i < mEvents.size(); i++) {
     cudaEvent_t* events = (cudaEvent_t*)mEvents[i].data();
@@ -424,7 +425,7 @@ int GPUReconstructionCUDA::ExitDevice_Runtime()
   return (0);
 }
 
-size_t GPUReconstructionCUDA::GPUMemCpy(void* dst, const void* src, size_t size, int stream, int toGPU, deviceEvent* ev, deviceEvent* evList, int nEvents)
+size_t GPUReconstructionCUDA::GPUMemCpy(void* dst, const void* src, size_t size, int stream, int toGPU, deviceEvent ev, deviceEvent* evList, int nEvents)
 {
   if (mProcessingSettings.debugLevel >= 3) {
     stream = -1;
@@ -447,7 +448,7 @@ size_t GPUReconstructionCUDA::GPUMemCpy(void* dst, const void* src, size_t size,
   return size;
 }
 
-size_t GPUReconstructionCUDA::TransferMemoryInternal(GPUMemoryResource* res, int stream, deviceEvent* ev, deviceEvent* evList, int nEvents, bool toGPU, const void* src, void* dst)
+size_t GPUReconstructionCUDA::TransferMemoryInternal(GPUMemoryResource* res, int stream, deviceEvent ev, deviceEvent* evList, int nEvents, bool toGPU, const void* src, void* dst)
 {
   if (!(res->Type() & GPUMemoryResource::MEMORY_GPU)) {
     if (mProcessingSettings.debugLevel >= 4) {
@@ -461,7 +462,7 @@ size_t GPUReconstructionCUDA::TransferMemoryInternal(GPUMemoryResource* res, int
   return GPUMemCpy(dst, src, res->Size(), stream, toGPU, ev, evList, nEvents);
 }
 
-size_t GPUReconstructionCUDA::WriteToConstantMemory(size_t offset, const void* src, size_t size, int stream, deviceEvent* ev)
+size_t GPUReconstructionCUDA::WriteToConstantMemory(size_t offset, const void* src, size_t size, int stream, deviceEvent ev)
 {
   std::unique_ptr<GPUParamRTC> tmpParam;
   for (unsigned int i = 0; i < 1 + mDeviceConstantMemRTC.size(); i++) {
@@ -481,8 +482,8 @@ size_t GPUReconstructionCUDA::WriteToConstantMemory(size_t offset, const void* s
   return size;
 }
 
-void GPUReconstructionCUDA::ReleaseEvent(deviceEvent* ev) {}
-void GPUReconstructionCUDA::RecordMarker(deviceEvent* ev, int stream) { GPUFailedMsg(cudaEventRecord(*(cudaEvent_t*)ev, mInternals->Streams[stream])); }
+void GPUReconstructionCUDA::ReleaseEvent(deviceEvent ev) {}
+void GPUReconstructionCUDA::RecordMarker(deviceEvent ev, int stream) { GPUFailedMsg(cudaEventRecord(*(cudaEvent_t*)ev, mInternals->Streams[stream])); }
 
 std::unique_ptr<GPUReconstruction::GPUThreadContext> GPUReconstructionCUDA::GetThreadContext()
 {
@@ -553,14 +554,14 @@ int GPUReconstructionCUDA::PrepareTextures()
   return (0);
 }
 
-int GPUReconstructionCUDA::registerMemoryForGPU(const void* ptr, size_t size)
+int GPUReconstructionCUDA::registerMemoryForGPU_internal(const void* ptr, size_t size)
 {
-  return mProcessingSettings.noGPUMemoryRegistration ? 0 : GPUFailedMsgI(cudaHostRegister((void*)ptr, size, cudaHostRegisterDefault));
+  return GPUFailedMsgI(cudaHostRegister((void*)ptr, size, cudaHostRegisterDefault));
 }
 
-int GPUReconstructionCUDA::unregisterMemoryForGPU(const void* ptr)
+int GPUReconstructionCUDA::unregisterMemoryForGPU_internal(const void* ptr)
 {
-  return mProcessingSettings.noGPUMemoryRegistration ? 0 : GPUFailedMsgI(cudaHostUnregister((void*)ptr));
+  return GPUFailedMsgI(cudaHostUnregister((void*)ptr));
 }
 
 void GPUReconstructionCUDA::startGPUProfiling()
