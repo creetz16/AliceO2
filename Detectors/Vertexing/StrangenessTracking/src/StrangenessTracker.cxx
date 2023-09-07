@@ -112,6 +112,7 @@ void StrangenessTracker::prepareITStracks() // sort tracks by eta and phi and se
 
 void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, int iThread)
 {
+  StrangeTrack strangeTrack;
   ClusAttachments structClus;
   auto& daughterTracks = mDaughterTracks[iThread];
   daughterTracks.resize(2); // resize to 2 prongs: first positive second negative
@@ -119,15 +120,24 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
   auto negTrack = v0.getProng(kV0DauNeg);
   auto alphaV0 = calcV0alpha(v0);
   alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
+
+  strangeTrack.mMassInit = sqrt(v0.calcMass2());
+  LOG(debug) << "Check mMassInit v0: " << strangeTrack.mMassInit;
+
   V0 correctedV0; // recompute V0 for Hypertriton
   if (mStrParams->useKFvertexing) {
     if (!createKFV0(posTrack, negTrack, pidV0)) return; // reconstruct V0 with KF using Hypertriton/hyperhydrogen PID
     if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) return; // convert KFParticle V0 to TrackParCov object
+
+    float M, SigmaM;
+    kfpMother.GetMass(M, SigmaM);
+    strangeTrack.mMassInitKF = M;
+    LOG(debug) << "Check mMassInitKF v0: " << strangeTrack.mMassInitKF;
+
   } else {
     if (!recreateV0(posTrack, negTrack, correctedV0, iThread)) return;
   }
 
-  StrangeTrack strangeTrack;
   strangeTrack.mPartType = dataformats::kStrkV0;
   auto v0R = std::sqrt(v0.calcR2());
   auto iBinsV0 = mUtils.getBinRect(correctedV0.getEta(), correctedV0.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
@@ -187,10 +197,15 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
 
 void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const CascadeIndex& cascIdx, const V0& cascV0, int iThread)
 {
+  StrangeTrack strangeTrack;
   ClusAttachments structClus;
   auto& daughterTracks = mDaughterTracks[iThread];
   daughterTracks.resize(3); // resize to 3 prongs: first bachelor, second V0 pos, third V0 neg
   o2::track::TrackParCovF cascade;
+
+  strangeTrack.mMassInit = sqrt(casc.calcMass2());
+  LOG(debug) << "Check mMassInit cascade: " << strangeTrack.mMassInit;
+
   if (mStrParams->useKFvertexing) {
     auto posTrack = cascV0.getProng(kV0DauPos);
     auto negTrack = cascV0.getProng(kV0DauNeg);
@@ -201,8 +216,14 @@ void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const Ca
     if (!getTrackParCovFromKFP(kfpMother, pidCasc, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object
       return;
     }
+
+    float M, SigmaM;
+    kfpMother.GetMass(M, SigmaM);
+    strangeTrack.mMassInitKF = M;
+    LOG(debug) << "Check mMassInitKF v0: " << strangeTrack.mMassInitKF;
+
   } 
-  StrangeTrack strangeTrack;
+  
   strangeTrack.mPartType = dataformats::kStrkCascade;
   // first: bachelor, second: V0 pos, third: V0 neg
   auto cascR = std::sqrt(casc.calcR2());
