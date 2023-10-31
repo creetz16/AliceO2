@@ -40,8 +40,6 @@ struct StrangeTrack {
   float mMatchChi2 = -99;
   float mTopoChi2 = -99;
   float mGeoChi2 = -99;
-  float mMassInit = -99;
-  float mMassInitKF = -99;
 };
 
 } // namespace dataformats

@@ -33,7 +33,6 @@ struct StrangenessTrackingParamConfig : public o2::conf::ConfigurableParamHelper
   float mMaxChi2 = 50;         // Maximum matching chi2
   bool mVertexMatching = true; // Flag to enable/disable vertex matching
   // KF parameters
-  bool useKFvertexing = false; // Flag to enable/disable KFParticle vertexing
   int kfConstructMethod = 0;   // Construct method for KFParticle reconstruction
   bool kfMassConst = true;     // Flag to enable/disable the mass constraint on the cascade V0
   int pidV0 = 0;               // PID hypothesis for the V0 fitting - 0: hypertriton, 1: hyperhydrogen

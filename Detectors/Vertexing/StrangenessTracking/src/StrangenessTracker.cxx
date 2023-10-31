@@ -121,22 +121,9 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
   auto alphaV0 = calcV0alpha(v0);
   alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
 
-  strangeTrack.mMassInit = sqrt(v0.calcMass2());
-  LOG(debug) << "Check mMassInit v0: " << strangeTrack.mMassInit;
-
   V0 correctedV0; // recompute V0 for Hypertriton
-  if (mStrParams->useKFvertexing) {
-    if (!createKFV0(posTrack, negTrack, pidV0)) return; // reconstruct V0 with KF using Hypertriton/hyperhydrogen PID
-    if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) return; // convert KFParticle V0 to TrackParCov object
-
-    float M, SigmaM;
-    kfpMother.GetMass(M, SigmaM);
-    strangeTrack.mMassInitKF = M;
-    LOG(debug) << "Check mMassInitKF v0: " << strangeTrack.mMassInitKF;
-
-  } else {
-    if (!recreateV0(posTrack, negTrack, correctedV0, iThread)) return;
-  }
+  if (!createKFV0(posTrack, negTrack, pidV0)) return; // reconstruct V0 with KF using Hypertriton/hyperhydrogen PID
+  if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) return; // convert KFParticle V0 to TrackParCov object
 
   strangeTrack.mPartType = dataformats::kStrkV0;
   auto v0R = std::sqrt(v0.calcR2());
@@ -155,31 +142,11 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
       }
       strangeTrack.mMother = (o2::track::TrackParCovF)correctedV0; // V0 at OuterParam of ITS track
       if (matchDecayToITStrack(v0R, strangeTrack, structClus, itsTrack, daughterTracks, iThread)) {
-        if (mStrParams->useKFvertexing) {
-          // get parameters at decay vertex
-          if (!fillKFinfo(kfpMother, strangeTrack)) {
-            continue;
-          }
-        } else {
-          auto propInstance = o2::base::Propagator::Instance();
-          o2::track::TrackParCov decayVtxTrackClone = strangeTrack.mMother; // clone track and propagate to decay vertex
-          if (!propInstance->propagateToX(decayVtxTrackClone, strangeTrack.mDecayVtx[0], getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
-            LOG(debug) << "Mother propagation to decay vertex failed";
-            continue;
-          }
-          decayVtxTrackClone.getPxPyPzGlo(strangeTrack.mDecayMom);
-          std::array<float, 3> momPos, momNeg;
-          mFitter3Body[iThread].getTrack(kV0DauPos).getPxPyPzGlo(momPos);
-          mFitter3Body[iThread].getTrack(kV0DauNeg).getPxPyPzGlo(momNeg);
-          if (alphaV0 > 0) {
-            strangeTrack.mMasses[0] = calcMotherMass(momPos, momNeg, PID::Helium3, PID::Pion); // Hypertriton invariant mass at decay vertex
-            strangeTrack.mMasses[1] = calcMotherMass(momPos, momNeg, PID::Alpha, PID::Pion);   // Hyperhydrogen4Lam invariant mass at decay vertex
-          } else {
-            strangeTrack.mMasses[0] = calcMotherMass(momPos, momNeg, PID::Pion, PID::Helium3); // Anti-Hypertriton invariant mass at decay vertex
-            strangeTrack.mMasses[1] = calcMotherMass(momPos, momNeg, PID::Pion, PID::Alpha);   // Anti-Hyperhydrogen4Lam invariant mass at decay vertex
-          }
+        // get parameters at decay vertex
+        if (!fillKFinfo(kfpMother, strangeTrack)) {
+          continue;
         }
-
+        
         LOG(debug) << "ITS Track matched with a V0 decay topology ....";
         LOG(debug) << "Number of ITS track clusters attached: " << itsTrack.getNumberOfClusters();
         strangeTrack.mDecayRef = iv0;
@@ -203,26 +170,15 @@ void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const Ca
   daughterTracks.resize(3); // resize to 3 prongs: first bachelor, second V0 pos, third V0 neg
   o2::track::TrackParCovF cascade;
 
-  strangeTrack.mMassInit = sqrt(casc.calcMass2());
-  LOG(debug) << "Check mMassInit cascade: " << strangeTrack.mMassInit;
-
-  if (mStrParams->useKFvertexing) {
-    auto posTrack = cascV0.getProng(kV0DauPos);
-    auto negTrack = cascV0.getProng(kV0DauNeg);
-    auto bachTrack = casc.getBachelorTrack();
-    if (!createKFCascade(posTrack, negTrack, bachTrack, pidCasc)) { // reconstruct cascade with KF using XiMinus PID
-      return;
-    }
-    if (!getTrackParCovFromKFP(kfpMother, pidCasc, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object
-      return;
-    }
-
-    float M, SigmaM;
-    kfpMother.GetMass(M, SigmaM);
-    strangeTrack.mMassInitKF = M;
-    LOG(debug) << "Check mMassInitKF v0: " << strangeTrack.mMassInitKF;
-
-  } 
+  auto posTrack = cascV0.getProng(kV0DauPos);
+  auto negTrack = cascV0.getProng(kV0DauNeg);
+  auto bachTrack = casc.getBachelorTrack();
+  if (!createKFCascade(posTrack, negTrack, bachTrack, pidCasc)) { // reconstruct cascade with KF using XiMinus PID
+    return;
+  }
+  if (!getTrackParCovFromKFP(kfpMother, pidCasc, bachTrack.getCharge()<0 ? -1 : 1, cascade)) { // convert KFParticle cascade to TrackParCov object
+    return;
+  }
   
   strangeTrack.mPartType = dataformats::kStrkCascade;
   // first: bachelor, second: V0 pos, third: V0 neg
@@ -241,33 +197,18 @@ void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const Ca
         LOG(debug) << "Vertex ID mismatch: " << mITSvtxBrackets[ITSindexRef].getMin() << " < " << cascIdx.getVertexID() << " < " << mITSvtxBrackets[ITSindexRef].getMax();
         continue;
       }
-      if (!mStrParams->useKFvertexing) {
-        cascade = (o2::track::TrackParCovF)casc;
-      }
+
+      cascade = (o2::track::TrackParCovF)casc;
+
       if (!propagateToOuterParam(itsTrack, cascade)) { // propagate cascade to OuterParam of ITS track
         continue;
       }
       strangeTrack.mMother = cascade; // cascade at OuterParam of ITS track
 
       if (matchDecayToITStrack(cascR, strangeTrack, structClus, itsTrack, daughterTracks, iThread)) {
-        if (mStrParams->useKFvertexing) {
-          // get parameters at decay vertex
-          if (!fillKFinfo(kfpMother, strangeTrack)) {
-            continue;
-          }
-        } else {
-          auto propInstance = o2::base::Propagator::Instance();
-          o2::track::TrackParCov decayVtxTrackClone = strangeTrack.mMother; // clone track and propagate to decay vertex
-          if (!propInstance->propagateToX(decayVtxTrackClone, strangeTrack.mDecayVtx[0], getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
-            LOG(debug) << "Mother propagation to decay vertex failed";
-            continue;
-          }
-          decayVtxTrackClone.getPxPyPzGlo(strangeTrack.mDecayMom);
-          std::array<float, 3> momV0, mombach;
-          mFitter3Body[iThread].getTrack(0).getPxPyPzGlo(momV0);                             // V0 momentum at decay vertex
-          mFitter3Body[iThread].getTrack(1).getPxPyPzGlo(mombach);                           // bachelor momentum at decay vertex
-          strangeTrack.mMasses[0] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Pion); // Xi invariant mass at decay vertex
-          strangeTrack.mMasses[1] = calcMotherMass(momV0, mombach, PID::Lambda, PID::Kaon); // Omega invariant mass at decay vertex
+        // get parameters at decay vertex
+        if (!fillKFinfo(kfpMother, strangeTrack)) {
+          continue;
         }
 
         LOG(debug) << "ITS Track matched with a Cascade decay topology ....";
@@ -368,110 +309,78 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR, StrangeTrack& strang
     }
 
     // refit KFParticle cascade/v0 with updated daughters
-    if (mStrParams->useKFvertexing) {
-      // V0
-      if (strangeTrack.mPartType == dataformats::kStrkV0) {
-        // create hyperhydrogen4 V0 and fill mass
-        if (!createKFV0(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], pidV0comp)) {
-          return false;
-        }
-        float M, SigmaM;
-        kfpMother.GetMass(M, SigmaM);
-        strangeTrack.mMasses[1] = M;
-        // recreate hypertriton V0
-        if (!createKFV0(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], pidV0)) {
-          return false;
-        }
-        // get TrackParCov from KFParticle mother
-        if (!getTrackParCovFromKFP(kfpMother, pidV0, daughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, strangeTrack.mMother)) {
-          return false;
-        }
+    // V0
+    if (strangeTrack.mPartType == dataformats::kStrkV0) {
+      // create hyperhydrogen4 V0 and fill mass
+      if (!createKFV0(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], pidV0comp)) {
+        return false;
       }
-      // cascade
-      else if (strangeTrack.mPartType == dataformats::kStrkCascade) {
-        // create Omega cascade and fill mass
-        if (!createKFCascade(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], daughterTracks[kBach], pidCascComp)) {
-          return false;
-        }
-        float M, SigmaM;
-        kfpMother.GetMass(M, SigmaM);
-        strangeTrack.mMasses[1] = M;
-        // recreate XiMinus cascade
-        if (!createKFCascade(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], daughterTracks[kBach], pidCasc)) {
-          return false;
-        }
-        // get TrackParCov from KFParticle mother
-        if (!getTrackParCovFromKFP(kfpMother, pidCasc, daughterTracks[kBach].getCharge()<0 ? -1 : 1, strangeTrack.mMother)) {
-          return false;
-        }
+      float M, SigmaM;
+      kfpMother.GetMass(M, SigmaM);
+      strangeTrack.mMasses[1] = M;
+      // recreate hypertriton V0
+      if (!createKFV0(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], pidV0)) {
+        return false;
       }
-    } // end KFParticle refit
+      // get TrackParCov from KFParticle mother
+      if (!getTrackParCovFromKFP(kfpMother, pidV0, daughterTracks[kV0DauPos].getAbsCharge()==2 ? 1 : -1, strangeTrack.mMother)) {
+        return false;
+      }
+    }
+    // cascade
+    else if (strangeTrack.mPartType == dataformats::kStrkCascade) {
+      // create Omega cascade and fill mass
+      if (!createKFCascade(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], daughterTracks[kBach], pidCascComp)) {
+        return false;
+      }
+      float M, SigmaM;
+      kfpMother.GetMass(M, SigmaM);
+      strangeTrack.mMasses[1] = M;
+      // recreate XiMinus cascade
+      if (!createKFCascade(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], daughterTracks[kBach], pidCasc)) {
+        return false;
+      }
+      // get TrackParCov from KFParticle mother
+      if (!getTrackParCovFromKFP(kfpMother, pidCasc, daughterTracks[kBach].getCharge()<0 ? -1 : 1, strangeTrack.mMother)) {
+        return false;
+      }
+    }
+
   } // end of cluster loop
 
   if (nUpdates < trackClusters.size() || motherClusters.size() < nMinClusMother) {
     return false;
   }
 
-  // topology refit with DCA fitter
-  if (!mStrParams->useKFvertexing) {
-    o2::track::TrackParCov motherTrackClone = strangeTrack.mMother; // clone and reset covariance for final topology refit
-    motherTrackClone.resetCovariance();
+  // final kinematic constraint of topology
+  if (motherClusters.size() > 0) 
+  {
+    /// BRIEF: if clusters were attached to the mother, we want to use them to constrain the mother parameters at the decay vertex, which was fitted from the daughters.
+    /// strangeTrack.mMother is TrackParCov object with parameters at the innermost cluster of the attached ITS tracklet
+    /// kfpMother is KFParticle object with parameters at the decay vertex, which was fitted from the daughters.
 
-    LOG(debug) << "Clusters attached, starting inward-outward refit";
-
-    std::reverse(motherClusters.begin(), motherClusters.end());
-
-    for (auto& clus : motherClusters) {
-      if (!updateTrack(clus, motherTrackClone)) {
-        break;
-      }
+    /// strangeTrack.mMother object has to be transported to the decay vertex position, taking into account the material:
+    auto propInstance = o2::base::Propagator::Instance();
+    o2::track::TrackParCov decayVtxTrackClone = strangeTrack.mMother;
+    if (!propInstance->propagateToX(decayVtxTrackClone, kfpMother.GetX(), getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
+      LOG(debug) << "Mother propagation to decay vertex failed";
+      return false;
     }
 
-    // compute mother average cluster size
-    strangeTrack.mITSClusSize = float(std::accumulate(motherClusSizes.begin(), motherClusSizes.end(), 0)) / motherClusSizes.size();
-
-    LOG(debug) << "Inward-outward refit finished, starting final topology refit";
-    // final Topology refit
-
-    int cand = 0; // best V0 candidate
-    int nCand;
-
-    // refit cascade
-    if (strangeTrack.mPartType == dataformats::kStrkCascade) {
-      V0 cascV0Upd;
-      if (!recreateV0(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], cascV0Upd, iThread)) {
-        LOG(debug) << "Cascade V0 refit failed";
-        return false;
-      }
-      try {
-        nCand = mFitter3Body[iThread].process(cascV0Upd, daughterTracks[kBach], motherTrackClone);
-      } catch (std::runtime_error& e) {
-        LOG(debug) << "Fitter3Body failed: " << e.what();
-        return false;
-      }
-      if (!nCand || !mFitter3Body[iThread].propagateTracksToVertex()) {
-        LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
-        return false;
-      }
+    /// propagated TrackParCov object at decay vertex has to be converted to a KFParticle object:
+    KFParticle kfpTracklet;
+    if (strangeTrack.mPartType == dataformats::kStrkV0) { // create KFParticle with hypertriton hypothesis
+      kfpTracklet = createKFParticleFromTrackParCov(decayVtxTrackClone, 1, o2::constants::physics::MassHyperTriton); 
+    } else if (strangeTrack.mPartType == dataformats::kStrkCascade) { // create KFParticle with Xi hypothesis
+      kfpTracklet = createKFParticleFromTrackParCov(decayVtxTrackClone, -1, o2::constants::physics::MassXiMinus);
     }
 
-    // refit V0
-    else if (strangeTrack.mPartType == dataformats::kStrkV0) {
-      try {
-        nCand = mFitter3Body[iThread].process(daughterTracks[kV0DauPos], daughterTracks[kV0DauNeg], motherTrackClone);
-      } catch (std::runtime_error& e) {
-        LOG(debug) << "Fitter3Body failed: " << e.what();
-        return false;
-      }
-      if (!nCand || !mFitter3Body[iThread].propagateTracksToVertex()) {
-        LOG(debug) << "Fitter3Body failed: propagation to vertex failed";
-        return false;
-      }
-    }
+    /// transformed KFParticle object "kfpTracklet" can be used to constrain mother parameters at decay vertex
+    /// "kfpTracklet" is used as measurement to constrain "kfpMother" parameters
+    /// TODO: add kinematic constraint with new KF functionality here!
+    /// ...
 
-    strangeTrack.mDecayVtx = mFitter3Body[iThread].getPCACandidatePos();
-    strangeTrack.mTopoChi2 = mFitter3Body[iThread].getChi2AtPCACandidate();
-  } // end topology refit with DCA fitter
+  }
 
   structClus.arr = nAttachments;
 
