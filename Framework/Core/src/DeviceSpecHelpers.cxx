@@ -48,6 +48,8 @@
 #include <csignal>
 #include <fairmq/Device.h>
 
+#include <regex>
+
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
 
@@ -90,6 +92,9 @@ void signal_callback(uv_signal_t* handle, int)
 {
   // We simply wake up the event loop. Nothing to be done here.
   auto* state = (DeviceState*)handle->data;
+  if (!state) {
+    return;
+  }
   state->loopReason |= DeviceState::SIGNAL_ARRIVED;
   state->loopReason |= DeviceState::DATA_INCOMING;
 }
@@ -534,6 +539,7 @@ void DeviceSpecHelpers::processOutEdgeActions(ConfigContext const& configContext
       .name = processor.name,
       .id = processor.maxInputTimeslices == 1 ? processor.name : processor.name + "_t" + std::to_string(edge.producerTimeIndex),
       .channelPrefix = channelPrefix,
+      .inputChannels = {},
       .options = processor.options,
       .services = ServiceSpecHelpers::filterDisabled(processor.requiredServices, overrideServices),
       .algorithm = processor.algorithm,
@@ -1068,6 +1074,8 @@ void DeviceSpecHelpers::dataProcessorSpecs2DeviceSpecs(const WorkflowSpec& workf
 
   WorkflowHelpers::constructGraph(workflow, logicalEdges, outputs, availableForwardsInfo);
 
+  WorkflowHelpers::validateEdges(workflow, logicalEdges, outputs);
+
   // We need to instanciate one device per (me, timeIndex) in the
   // DeviceConnectionEdge. For each device we need one new binding
   // server per (me, other) -> port Moreover for each (me, other,
@@ -1482,8 +1490,8 @@ void DeviceSpecHelpers::prepareArguments(bool defaultQuiet, bool defaultStopped,
       haveSessionArg = haveSessionArg || varmap.count("session") != 0;
       useDefaultWS = useDefaultWS && ((varmap.count("driver-client-backend") == 0) || varmap["driver-client-backend"].as<std::string>() == "ws://");
 
-      auto processRawChannelConfig = [&tmpArgs](const std::string& conf) {
-        std::stringstream ss(conf);
+      auto processRawChannelConfig = [&tmpArgs, &spec](const std::string& conf) {
+        std::stringstream ss(reworkTimeslicePlaceholder(conf, spec));
         std::string token;
         while (std::getline(ss, token, ';')) { // split to tokens, trim spaces and add each non-empty one with channel-config options
           token.erase(token.begin(), std::find_if(token.begin(), token.end(), [](int ch) { return !std::isspace(ch); }));
@@ -1667,7 +1675,7 @@ bool DeviceSpecHelpers::hasLabel(DeviceSpec const& spec, char const* label)
   return std::find_if(spec.labels.begin(), spec.labels.end(), sameLabel) != spec.labels.end();
 }
 
-std::string DeviceSpecHelpers::reworkEnv(std::string const& str, DeviceSpec const& spec)
+std::string DeviceSpecHelpers::reworkTimeslicePlaceholder(std::string const& str, DeviceSpec const& spec)
 {
   // find all the possible timeslice variables, extract N and replace
   // the variable with the value of spec.inputTimesliceId + N.

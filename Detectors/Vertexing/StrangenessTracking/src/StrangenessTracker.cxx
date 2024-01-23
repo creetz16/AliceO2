@@ -112,6 +112,10 @@ void StrangenessTracker::prepareITStracks() // sort tracks by eta and phi and se
 
 void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, int iThread)
 {
+  if (mStrParams->mSkipTPC && ((v0Idx.getProngID(kV0DauNeg).getSource() == GIndex::TPC) || (v0Idx.getProngID(kV0DauPos).getSource() == GIndex::TPC))) {
+    return;
+  }
+  
   StrangeTrack strangeTrack;
   ClusAttachments structClus;
   auto& daughterTracks = mDaughterTracks[iThread];
@@ -119,7 +123,18 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
   auto posTrack = v0.getProng(kV0DauPos);
   auto negTrack = v0.getProng(kV0DauNeg);
   auto alphaV0 = calcV0alpha(v0);
-  alphaV0 > 0 ? posTrack.setAbsCharge(2) : negTrack.setAbsCharge(2);
+
+  if (alphaV0 > 0) {
+    posTrack.setAbsCharge(2);
+    if (posTrack.getPID() != PID::Alpha) {
+      posTrack.setPID(PID::Helium3, true);
+    }
+  } else {
+    negTrack.setAbsCharge(2);
+    if (negTrack.getPID() != PID::Alpha) {
+      negTrack.setPID(PID::Helium3, true);
+    }
+  }
 
   V0 correctedV0; // recompute V0 for Hypertriton
   if (!createKFV0(posTrack, negTrack, pidV0)) return; // reconstruct V0 with KF using Hypertriton/hyperhydrogen PID

@@ -129,6 +129,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <execinfo.h>
+#include <cfenv>
 // This is to allow C++20 aggregate initialisation
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -577,25 +578,22 @@ void handle_crash(int sig)
 {
   // dump demangled stack trace
   void* array[1024];
-
   int size = backtrace(array, 1024);
 
   {
-    char const* msg = "*** Program crashed (Segmentation fault, FPE, BUS, ABRT, KILL, Unhandled Exception, ...)\nBacktrace by DPL:\n";
-    auto retVal = write(STDERR_FILENO, msg, strlen(msg));
-    msg = "UNKNOWN SIGNAL\n";
-    if (sig == SIGSEGV) {
-      msg = "SEGMENTATION FAULT\n";
-    } else if (sig == SIGABRT) {
-      msg = "ABRT\n";
-    } else if (sig == SIGBUS) {
-      msg = "BUS ERROR\n";
-    } else if (sig == SIGILL) {
-      msg = "ILLEGAL INSTRUCTION\n";
-    } else if (sig == SIGFPE) {
-      msg = "FLOATING POINT EXCEPTION\n";
+    char buffer[1024];
+    char const* msg = "*** Program crashed (%s)\nBacktrace by DPL:\n";
+    snprintf(buffer, 1024, msg, strsignal(sig));
+    if (sig == SIGFPE) {
+      if (std::fetestexcept(FE_DIVBYZERO)) {
+        snprintf(buffer, 1024, msg, "FLOATING POINT EXCEPTION - DIVISION BY ZERO");
+      } else if (std::fetestexcept(FE_INVALID)) {
+        snprintf(buffer, 1024, msg, "FLOATING POINT EXCEPTION - INVALID RESULT");
+      } else {
+        snprintf(buffer, 1024, msg, "FLOATING POINT EXCEPTION - UNKNOWN REASON");
+      }
     }
-    retVal = write(STDERR_FILENO, msg, strlen(msg));
+    auto retVal = write(STDERR_FILENO, buffer, strlen(buffer));
     (void)retVal;
   }
   demangled_backtrace_symbols(array, size, STDERR_FILENO);
@@ -648,6 +646,12 @@ void spawnDevice(uv_loop_t* loop,
   if (id == 0) {
     // We allow being debugged and do not terminate on SIGTRAP
     signal(SIGTRAP, SIG_IGN);
+    // We immediately ignore SIGUSR1 and SIGUSR2 so that we do not
+    // get killed by the parent trying to force stepping children.
+    // We will re-enable them later on, when it is actually safe to
+    // do so.
+    signal(SIGUSR1, SIG_IGN);
+    signal(SIGUSR2, SIG_IGN);
 
     // This is the child.
     // For stdout / stderr, we close the read part of the pipe, the
@@ -681,7 +685,7 @@ void spawnDevice(uv_loop_t* loop,
       }
     }
     for (auto& env : execution.environ) {
-      putenv(strdup(DeviceSpecHelpers::reworkEnv(env, spec).data()));
+      putenv(strdup(DeviceSpecHelpers::reworkTimeslicePlaceholder(env, spec).data()));
     }
     execvp(execution.args[0], execution.args.data());
   }
@@ -689,7 +693,7 @@ void spawnDevice(uv_loop_t* loop,
   close(childFds[ref.index].childstdout[1]);
   if (varmap.count("post-fork-command")) {
     auto templateCmd = varmap["post-fork-command"];
-    auto cmd = fmt::format(templateCmd.as<std::string>(),
+    auto cmd = fmt::format(fmt::runtime(templateCmd.as<std::string>()),
                            fmt::arg("pid", id),
                            fmt::arg("id", spec.id),
                            fmt::arg("cpu", parentCPU),
@@ -796,7 +800,7 @@ void processChildrenOutput(DriverInfo& driverInfo,
     }
 
     O2_SIGNPOST_ID_FROM_POINTER(sid, driver, &info);
-    O2_SIGNPOST_START(driver, sid, "bytes_processed", "bytes processed by " O2_ENG_TYPE(pid, "d"), info.pid);
+    O2_SIGNPOST_START(driver, sid, "bytes_processed", "bytes processed by %{xcode:pid}d", info.pid);
 
     std::string_view s = info.unprinted;
     size_t pos = 0;
@@ -844,7 +848,7 @@ void processChildrenOutput(DriverInfo& driverInfo,
     size_t oldSize = info.unprinted.size();
     info.unprinted = std::string(s);
     int64_t bytesProcessed = oldSize - info.unprinted.size();
-    O2_SIGNPOST_END(driver, sid, "bytes_processed", "bytes processed by " O2_ENG_TYPE(network - size - in - bytes, PRIi64), bytesProcessed);
+    O2_SIGNPOST_END(driver, sid, "bytes_processed", "bytes processed by %{xcode:network-size-in-bytes}" PRIi64, bytesProcessed);
   }
 }
 
@@ -857,10 +861,9 @@ bool processSigChild(DeviceInfos& infos, DeviceSpecs& specs)
     int status;
     pid_t pid = waitpid((pid_t)(-1), &status, WNOHANG);
     if (pid > 0) {
+      // Normal exit
       int es = WEXITSTATUS(status);
-
       if (WIFEXITED(status) == false || es != 0) {
-        es = WIFEXITED(status) ? es : 128 + es;
         // Look for the name associated to the pid in the infos
         std::string id = "unknown";
         assert(specs.size() == infos.size());
@@ -875,10 +878,13 @@ bool processSigChild(DeviceInfos& infos, DeviceSpecs& specs)
         } else if (forceful_exit) {
           LOGP(error, "pid {} ({}) was forcefully terminated after being requested to quit", pid, id);
         } else {
-          if (es == 128) {
-            LOGP(error, "Workflow crashed - pid {} ({}) was killed abnormally with exit code {}, could be out of memory killer, segfault, unhandled exception, SIGKILL, etc...", pid, id, es);
+          if (WIFSIGNALED(status)) {
+            int exitSignal = WTERMSIG(status);
+            es = exitSignal + 128;
+            LOGP(error, "Workflow crashed - PID {} ({}) was killed abnormally with {} and exited code was set to {}.", pid, id, strsignal(exitSignal), es);
           } else {
-            LOGP(error, "pid {} ({}) crashed with or was killed with exit code {}", pid, id, es);
+            es = 128;
+            LOGP(error, "Workflow crashed - PID {} ({}) did not exit correctly however it's not clear why. Exit code forced to {}.", pid, id, es);
           }
         }
         hasError |= true;
@@ -1145,6 +1151,7 @@ std::vector<std::regex> getDumpableMetrics()
   dumpableMetrics.emplace_back("^table-bytes-.*");
   dumpableMetrics.emplace_back("^total-timeframes.*");
   dumpableMetrics.emplace_back("^device_state.*");
+  dumpableMetrics.emplace_back("^total_wall_time_ms$");
   return dumpableMetrics;
 }
 
@@ -1417,6 +1424,8 @@ int runStateMachine(DataProcessorSpecs const& workflow,
 
   uv_timer_t metricDumpTimer;
   metricDumpTimer.data = &serverContext;
+  bool allChildrenGone = false;
+  guiContext.allChildrenGone = &allChildrenGone;
 
   while (true) {
     // If control forced some transition on us, we push it to the queue.
@@ -1800,6 +1809,9 @@ int runStateMachine(DataProcessorSpecs const& workflow,
                   case VariantType::LabeledArrayDouble:
                     option.defaultValue = reg->get<LabeledArray<double>>(name);
                     break;
+                  case VariantType::LabeledArrayString:
+                    option.defaultValue = reg->get<LabeledArray<std::string>>(name);
+                    break;
                   default:
                     break;
                 }
@@ -2083,7 +2095,7 @@ int runStateMachine(DataProcessorSpecs const& workflow,
         driverInfo.sigchldRequested = false;
         processChildrenOutput(driverInfo, infos, runningWorkflow.devices, controls);
         hasError = processSigChild(infos, runningWorkflow.devices);
-        bool allChildrenGone = areAllChildrenGone(infos);
+        allChildrenGone = areAllChildrenGone(infos);
         bool canExit = checkIfCanExit(infos);
         bool supposedToQuit = (guiQuitRequested || canExit || graceful_exit);
 
@@ -2552,6 +2564,30 @@ void apply_permutation(
   }
 }
 
+// Check if the workflow is resiliant to failures
+void checkNonResiliency(std::vector<DataProcessorSpec> const& specs,
+                        std::vector<std::pair<int, int>> const& edges)
+{
+  auto checkExpendable = [](DataProcessorLabel const& label) {
+    return label.value == "expendable";
+  };
+  auto checkResilient = [](DataProcessorLabel const& label) {
+    return label.value == "resilient" || label.value == "expendable";
+  };
+
+  for (auto& edge : edges) {
+    auto& src = specs[edge.first];
+    auto& dst = specs[edge.second];
+    if (std::none_of(src.labels.begin(), src.labels.end(), checkExpendable)) {
+      continue;
+    }
+    if (std::any_of(dst.labels.begin(), dst.labels.end(), checkResilient)) {
+      continue;
+    }
+    throw std::runtime_error("Workflow is not resiliant to failures. Processor " + dst.name + " gets inputs from expendable devices, but is not marked as expendable or resilient itself.");
+  }
+}
+
 std::string debugTopoInfo(std::vector<DataProcessorSpec> const& specs,
                           std::vector<TopoIndexInfo> const& infos,
                           std::vector<std::pair<int, int>> const& edges)
@@ -2577,6 +2613,11 @@ std::string debugTopoInfo(std::vector<DataProcessorSpec> const& specs,
   for (auto& d : specs) {
     out << "- " << d.name << std::endl;
   }
+  out << "digraph G {\n";
+  for (auto& e : edges) {
+    out << fmt::format("  \"{}\" -> \"{}\"\n", specs[e.first].name, specs[e.second].name);
+  }
+  out << "}\n";
   return out.str();
 }
 
@@ -2815,6 +2856,8 @@ int doMain(int argc, char** argv, o2::framework::WorkflowSpec const& workflow,
 
     auto topoInfos = WorkflowHelpers::topologicalSort(physicalWorkflow.size(), &edges[0].first, &edges[0].second, sizeof(std::pair<int, int>), edges.size());
     if (topoInfos.size() != physicalWorkflow.size()) {
+      // Check missing resilincy of one of the tasks
+      checkNonResiliency(physicalWorkflow, edges);
       throw std::runtime_error("Unable to do topological sort of the resulting workflow. Do you have loops?\n" + debugTopoInfo(physicalWorkflow, topoInfos, edges));
     }
     // Sort by layer and then by name, to ensure stability.

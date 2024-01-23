@@ -81,11 +81,11 @@ fi
 : ${INTEGRATEDCURR_TF_PER_SLOT:=150000} # setting for FT0, FV0, FDD and TOF
 
 if [[ $BEAMTYPE == "PbPb" ]]; then
-  : ${LHCPHASE_TF_PER_SLOT:=264}
-  : ${TOF_CHANNELOFFSETS_UPDATE:=3000}
-  : ${TOF_CHANNELOFFSETS_DELTA_UPDATE:=500}
+  : ${LHCPHASE_TF_PER_SLOT:=100000}
+  : ${TOF_CHANNELOFFSETS_UPDATE:=300000}
+  : ${TOF_CHANNELOFFSETS_DELTA_UPDATE:=50000}
 else
-  : ${LHCPHASE_TF_PER_SLOT:=26400}
+  : ${LHCPHASE_TF_PER_SLOT:=100000}
   : ${TOF_CHANNELOFFSETS_UPDATE:=300000}
   : ${TOF_CHANNELOFFSETS_DELTA_UPDATE:=50000}
 fi
@@ -158,7 +158,7 @@ if workflow_has_parameter CALIB_PROXIES; then
       if [[ ! -z ${CALIBDATASPEC_TPCSAC:-} ]]; then
         add_semicolon_separated DATASPEC_LIST "\"$CALIBDATASPEC_TPCSAC\""
       fi
-      add_W o2-dpl-raw-proxy "--proxy-name tpcidc --io-threads 2 --dataspec \"$DATASPEC_LIST\" --channel-config \"$CHANNELS_LIST\" ${TIMEFRAME_SHM_LIMIT+--timeframes-shm-limit} $TIMEFRAME_SHM_LIMIT" "" 0
+      add_W o2-dpl-raw-proxy "--proxy-name tpcidc --io-threads 2 --dataspec \"$DATASPEC_LIST\" --sporadic-outputs --channel-config \"$CHANNELS_LIST\" ${TIMEFRAME_SHM_LIMIT+--timeframes-shm-limit} $TIMEFRAME_SHM_LIMIT" "" 0
     fi
   elif [[ $AGGREGATOR_TASKS == CALO_TF ]]; then
     if [[ ! -z ${CALIBDATASPEC_CALO_TF:-} ]]; then
@@ -206,7 +206,7 @@ if [[ $AGGREGATOR_TASKS == BARREL_TF ]] || [[ $AGGREGATOR_TASKS == ALL ]]; then
     fi
   fi
   if [[ $CALIB_TOF_DIAGNOSTICS == 1 ]]; then
-    add_W o2-calibration-tof-diagnostic-workflow "--tf-per-slot 26400 --max-delay 1" "" 0
+    add_W o2-calibration-tof-diagnostic-workflow "--tf-per-slot $LHCPHASE_TF_PER_SLOT --max-delay 1" "" 0
   fi
   # TPC
   if [[ $CALIB_TPC_SCDCALIB == 1 ]]; then
@@ -277,15 +277,17 @@ fi
 # calibrations for AGGREGATOR_TASKS == CALO_TF
 if [[ $AGGREGATOR_TASKS == CALO_TF || $AGGREGATOR_TASKS == ALL ]]; then
   # EMC
-  EMCAL_CALIB_CTP_OPT=
+  EMCAL_CALIB_OPT=
+  EMCAL_CALIB_CONFIG=
   if ! has_detector CTP; then
-    EMCAL_CALIB_CTP_OPT="--no-rejectL0Trigger"
+    EMCAL_CALIB_OPT+=" --no-rejectL0Trigger"
   fi
+  [[ $EPNSYNCMODE == 1 ]] && EMCAL_CALIB_CONFIG+="EMCALCalibParams.filePathSave=/scratch/services/detector_tmp/emc_calib;"
   if [[ $CALIB_EMC_BADCHANNELCALIB == 1 ]]; then
-    add_W o2-calibration-emcal-channel-calib-workflow "${EMCAL_CALIB_CTP_OPT} --calibType \"badchannels\""
+    add_W o2-calibration-emcal-channel-calib-workflow "${EMCAL_CALIB_OPT} --calibType \"badchannels\"" "${EMCAL_CALIB_CONFIG}"
   fi
   if [[ $CALIB_EMC_TIMECALIB == 1 ]]; then
-    add_W o2-calibration-emcal-channel-calib-workflow "${EMCAL_CALIB_CTP_OPT} --calibType \"time\""
+    add_W o2-calibration-emcal-channel-calib-workflow "${EMCAL_CALIB_OPT} --calibType \"time\"" "${EMCAL_CALIB_CONFIG}"
   fi
 
   # PHS
@@ -313,10 +315,6 @@ fi
 
 # Forward detectors
 if [[ $AGGREGATOR_TASKS == FORWARD_TF || $AGGREGATOR_TASKS == ALL ]]; then
-  # ZDC
-  if [[ $CALIB_ZDC_TDC == 1 ]]; then
-    add_W o2-zdc-tdccalib-workflow "" "CalibParamZDC.outputDir=$CALIB_DIR;CalibParamZDC.metaFileDir=$EPN2EOS_METAFILES_DIR"
-  fi
   # FT0
   if [[ $CALIB_FT0_TIMEOFFSET == 1 ]]; then
     add_W o2-calibration-ft0-time-offset-calib "--tf-per-slot $FT0_TIMEOFFSET_TF_PER_SLOT --max-delay 0" "FT0CalibParam.mNExtraSlots=0;FT0CalibParam.mRebinFactorPerChID[180]=4;"
@@ -335,6 +333,10 @@ if [[ $AGGREGATOR_TASKS == FORWARD_SPORADIC || $AGGREGATOR_TASKS == ALL ]]; then
   # FDD
   if [[ $CALIB_FDD_INTEGRATEDCURR == 1 ]]; then
     add_W o2-fdd-merge-integrate-cluster-workflow "--tf-per-slot $INTEGRATEDCURR_TF_PER_SLOT"
+  fi
+  # ZDC
+  if [[ $CALIB_ZDC_TDC == 1 ]]; then
+    add_W o2-zdc-tdccalib-workflow "" "CalibParamZDC.outputDir=$CALIB_DIR;CalibParamZDC.metaFileDir=$EPN2EOS_METAFILES_DIR"
   fi
 fi
 

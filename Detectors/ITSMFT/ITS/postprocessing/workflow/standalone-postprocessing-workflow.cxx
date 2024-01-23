@@ -20,6 +20,7 @@
 // Include studies hereafter
 #include "ITSStudies/ImpactParameter.h"
 #include "ITSStudies/AvgClusSize.h"
+#include "ITSStudies/PIDStudy.h"
 #include "ITSStudies/TrackCheck.h"
 #include "Steer/MCKinematicsReader.h"
 
@@ -42,6 +43,7 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
     {"disable-root-input", VariantType::Bool, false, {"disable root-files input reader"}},
     {"disable-mc", VariantType::Bool, false, {"disable MC propagation even if available"}},
     {"cluster-size-study", VariantType::Bool, false, {"Perform the average cluster size study"}},
+    {"pid-study", VariantType::Bool, false, {"Perform the PID study"}},
     {"track-study", VariantType::Bool, false, {"Perform the track study"}},
     {"impact-parameter-study", VariantType::Bool, false, {"Perform the impact parameter study"}},
     {"configKeyValues", VariantType::String, "", {"Semicolon separated key=value strings ..."}}};
@@ -54,7 +56,7 @@ void customize(std::vector<ConfigParamSpec>& workflowOptions)
 WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
 {
   WorkflowSpec specs;
-  GID::mask_t allowedSourcesTrc = GID::getSourcesMask("ITS,ITS-TPC-TRD-TOF,ITS-TPC-TOF,ITS-TPC,ITS-TPC-TRD");
+  GID::mask_t allowedSourcesTrc = GID::getSourcesMask("ITS,TPC,ITS-TPC-TRD-TOF,ITS-TPC-TOF,ITS-TPC,ITS-TPC-TRD");
   GID::mask_t allowedSourcesClus = GID::getSourcesMask("ITS");
 
   // Update the (declared) parameters if changed from the command line
@@ -65,8 +67,8 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   GID::mask_t srcCls = allowedSourcesClus & GID::getSourcesMask(configcontext.options().get<std::string>("cluster-sources"));
 
   o2::globaltracking::InputHelper::addInputSpecs(configcontext, specs, srcCls, srcTrc, srcTrc, useMC, srcCls, srcTrc);
-  o2::globaltracking::InputHelper::addInputSpecsPVertex(configcontext, specs, useMC);
-  o2::globaltracking::InputHelper::addInputSpecsSVertex(configcontext, specs);
+  // o2::globaltracking::InputHelper::addInputSpecsPVertex(configcontext, specs, useMC);
+  // o2::globaltracking::InputHelper::addInputSpecsSVertex(configcontext, specs);
 
   std::shared_ptr<o2::steer::MCKinematicsReader> mcKinematicsReader;
   if (useMC) {
@@ -82,6 +84,10 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
   if (configcontext.options().get<bool>("cluster-size-study")) {
     anyStudy = true;
     specs.emplace_back(o2::its::study::getAvgClusSizeStudy(srcTrc, srcCls, useMC, mcKinematicsReader));
+  }
+  if (configcontext.options().get<bool>("pid-study")) {
+    anyStudy = true;
+    specs.emplace_back(o2::its::study::getPIDStudy(srcTrc, srcCls, useMC, mcKinematicsReader));
   }
   if (configcontext.options().get<bool>("track-study")) {
     anyStudy = true;

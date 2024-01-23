@@ -169,6 +169,7 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
   // Option to write TPC digits internaly, without forwarding to a special writer instance.
   // This is useful in GRID productions with small available memory.
   workflowOptions.push_back(ConfigParamSpec{"tpc-chunked-writer", o2::framework::VariantType::Bool, false, {"Write independent TPC digit chunks as soon as they can be flushed."}});
+  workflowOptions.push_back(ConfigParamSpec{"tpc-distortion-type", o2::framework::VariantType::Int, 0, {"Simulate distortions in the TPC (0=no distortions, 1=distortions without scaling, 2=distortions with CTP scaling)"}});
 
   std::string simhelp("Comma separated list of simulation prefixes (for background, signal productions)");
   workflowOptions.push_back(
@@ -195,7 +196,10 @@ void customize(std::vector<o2::framework::ConfigParamSpec>& workflowOptions)
   workflowOptions.push_back(ConfigParamSpec{"use-ccdb-ft0", o2::framework::VariantType::Bool, false, {"enable access to ccdb ft0 calibration objects"}});
 
   // option to use/not use CCDB for EMCAL
-  workflowOptions.push_back(ConfigParamSpec{"use-ccdb-emc", o2::framework::VariantType::Bool, false, {"enable access to ccdb EMCAL simulation objects"}});
+  workflowOptions.push_back(ConfigParamSpec{"no-use-ccdb-emc", o2::framework::VariantType::Bool, false, {"Disable access to ccdb EMCAL simulation objects"}});
+
+  // option to require/not require CTP MB inputs in EMCAL
+  workflowOptions.push_back(ConfigParamSpec{"no-require-ctpinputs-emc", o2::framework::VariantType::Bool, false, {"Disable requirement of CTP min. bias inputs in EMCAL simulation"}});
 
   // option to use or not use the Trap Simulator after digitisation (debate of digitization or reconstruction is for others)
   workflowOptions.push_back(ConfigParamSpec{"disable-trd-trapsim", VariantType::Bool, false, {"disable the trap simulation of the TRD"}});
@@ -477,8 +481,8 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
     // this will only be needed until digitizers take CCDB objects via DPL mechanism
     o2::ccdb::BasicCCDBManager::instance().setTimestamp(hbfu.startTime);
     // activate caching
-    o2::ccdb::BasicCCDBManager::instance().setCaching(false);
-    // without this, caching does not seem to work
+    o2::ccdb::BasicCCDBManager::instance().setCaching(true);
+    // this is asking the manager to check validity only locally - no further query to server done
     o2::ccdb::BasicCCDBManager::instance().setLocalObjectValidityChecking(true);
   }
   // update the digitization configuration with the right geometry file
@@ -568,7 +572,8 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
     detList.emplace_back(o2::detectors::DetID::TPC);
 
     auto internalwrite = configcontext.options().get<bool>("tpc-chunked-writer");
-    WorkflowSpec tpcPipelines = o2::tpc::getTPCDigitizerSpec(lanes, tpcsectors, mctruth, internalwrite);
+    auto distortionType = configcontext.options().get<int>("tpc-distortion-type");
+    WorkflowSpec tpcPipelines = o2::tpc::getTPCDigitizerSpec(lanes, tpcsectors, mctruth, internalwrite, distortionType);
     specs.insert(specs.end(), tpcPipelines.begin(), tpcPipelines.end());
 
     if (configcontext.options().get<std::string>("tpc-reco-type").empty() == false) {
@@ -650,10 +655,11 @@ WorkflowSpec defineDataProcessing(ConfigContext const& configcontext)
 
   // the EMCal part
   if (isEnabled(o2::detectors::DetID::EMC)) {
-    auto useCCDB = configcontext.options().get<bool>("use-ccdb-emc");
+    auto useCCDB = !configcontext.options().get<bool>("no-use-ccdb-emc");
+    bool requireCTPInputs = !configcontext.options().get<bool>("no-require-ctpinputs-emc");
     detList.emplace_back(o2::detectors::DetID::EMC);
     // connect the EMCal digitization
-    digitizerSpecs.emplace_back(o2::emcal::getEMCALDigitizerSpec(fanoutsize++, mctruth, useCCDB));
+    digitizerSpecs.emplace_back(o2::emcal::getEMCALDigitizerSpec(fanoutsize++, requireCTPInputs, mctruth, useCCDB));
     // connect the EMCal digit writer
     writerSpecs.emplace_back(o2::emcal::getEMCALDigitWriterSpec(mctruth));
   }
