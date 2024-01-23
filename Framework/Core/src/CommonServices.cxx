@@ -57,6 +57,7 @@
 #include <Configuration/ConfigurationInterface.h>
 #include <Configuration/ConfigurationFactory.h>
 #include <Monitoring/MonitoringFactory.h>
+#include "Framework/Signpost.h"
 
 #include <fairmq/Device.h>
 #include <fairmq/shmem/Monitor.h>
@@ -78,6 +79,9 @@ using Value = o2::monitoring::tags::Value;
 // This is to allow C++20 aggregate initialisation
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
+
+O2_DECLARE_DYNAMIC_LOG(data_processor_context);
+O2_DECLARE_DYNAMIC_LOG(stream_context);
 
 namespace o2::framework
 {
@@ -135,6 +139,10 @@ o2::framework::ServiceSpec CommonServices::asyncQueue()
     .name = "async-queue",
     .init = simpleServiceInit<AsyncQueue, AsyncQueue>(),
     .configure = noConfiguration(),
+    .stop = [](ServiceRegistryRef services, void* service) {
+      auto& queue = services.get<AsyncQueue>();
+      AsyncQueueHelpers::reset(queue);
+    },
     .kind = ServiceKind::Serial};
 }
 
@@ -158,6 +166,60 @@ o2::framework::ServiceSpec CommonServices::streamContextSpec()
     .uniqueId = simpleServiceId<StreamContext>(),
     .init = simpleServiceInit<StreamContext, StreamContext, ServiceKind::Stream>(),
     .configure = noConfiguration(),
+    .preProcessing = [](ProcessingContext& context, void* service) {
+      auto* stream = (StreamContext*)service;
+      auto& routes = context.services().get<DeviceSpec const>().outputs;
+      // Notice I need to do this here, because different invocation for
+      // the same stream might be referring to different data processors.
+      // We should probably have a context which is per stream of a specific
+      // data processor.
+      stream->routeUserCreated.resize(routes.size());
+      // Reset the routeUserCreated at every processing step
+      std::fill(stream->routeUserCreated.begin(), stream->routeUserCreated.end(), false); },
+    .postProcessing = [](ProcessingContext& processingContext, void* service) {
+      auto* stream = (StreamContext*)service;
+      auto& routes = processingContext.services().get<DeviceSpec const>().outputs;
+      auto& timeslice = processingContext.services().get<TimingInfo>().timeslice;
+      auto& messageContext = processingContext.services().get<MessageContext>();
+      // Check if we never created any data for this timeslice
+      // if we did not, but we still have didDispatched set to true
+      // it means it was created out of band.
+      bool didCreate = false;
+      O2_SIGNPOST_ID_FROM_POINTER(cid, stream_context, service);
+      for (size_t ri = 0; ri < routes.size(); ++ri) {
+        if (stream->routeUserCreated[ri] == true) {
+          didCreate = true;
+          break;
+        }
+      }
+      if (didCreate == false && messageContext.didDispatch() == true) {
+        O2_SIGNPOST_EVENT_EMIT(stream_context, cid, "postProcessingCallbacks", "Data created out of band didCreate == %d && messageContext.didDispatch == %d",
+                               didCreate,
+                               messageContext.didDispatch());
+        return;
+      }
+      if (didCreate == false && messageContext.didDispatch() == false) {
+        O2_SIGNPOST_ID_FROM_POINTER(cid, stream_context, service);
+        O2_SIGNPOST_EVENT_EMIT(stream_context, cid, "postProcessingCallbacks", "No data created");
+        return;
+      }
+      for (size_t ri = 0; ri < routes.size(); ++ri) {
+        auto &route = routes[ri];
+        auto &matcher = route.matcher;
+        if (stream->routeUserCreated[ri] == true) {
+          O2_SIGNPOST_EVENT_EMIT(stream_context, cid, "postProcessingCallbacks", "Data created by user. ri = %" PRIu64 ", %{public}s",
+                                 (uint64_t)ri, DataSpecUtils::describe(matcher).c_str());
+          continue;
+        }
+        if ((timeslice % route.maxTimeslices) != route.timeslice) {
+          O2_SIGNPOST_EVENT_EMIT(stream_context, cid, "postProcessingCallbacks", "Route ri = %" PRIu64 ", skipped",
+                                 (uint64_t)ri);
+          continue;
+        }
+        if (matcher.lifetime == Lifetime::Timeframe) {
+          LOGP(error, "Expected Lifetime::Timeframe data {} was not created for timeslice {} and might result in dropped timeframes", DataSpecUtils::describe(matcher), timeslice);
+        }
+      } },
     .kind = ServiceKind::Stream};
 }
 
@@ -399,24 +461,22 @@ o2::framework::ServiceSpec CommonServices::ccdbSupportSpec()
       return ServiceHandle{.hash = TypeIdHelpers::uniqueId<CCDBSupport>(), .instance = nullptr, .kind = ServiceKind::Serial};
     },
     .configure = noConfiguration(),
-    .postProcessing = [](ProcessingContext& pc, void* service) {
+    .finaliseOutputs = [](ProcessingContext& pc, void* service) {
       if (!service) {
         return;
       }
-      if (pc.services().get<DeviceState>().streaming == StreamingState::EndOfStreaming) {
-        if (pc.outputs().countDeviceOutputs(true) == 0) {
-          LOGP(debug, "We are in EoS w/o outputs, do not automatically add DISTSUBTIMEFRAME to outgoing messages");
-          return;
-        }
+      if (pc.outputs().countDeviceOutputs(true) == 0) {
+        LOGP(debug, "We are w/o outputs, do not automatically add DISTSUBTIMEFRAME to outgoing messages");
+        return;
       }
-      const auto ref = pc.inputs().getFirstValid(true);
-      const auto* dh = DataRefUtils::getHeader<o2::header::DataHeader*>(ref);
-      const auto* dph = DataRefUtils::getHeader<DataProcessingHeader*>(ref);
+      auto& timingInfo = pc.services().get<TimingInfo>();
 
       // For any output that is a FLP/DISTSUBTIMEFRAME with subspec != 0,
       // we create a new message.
       InputSpec matcher{"matcher", ConcreteDataTypeMatcher{"FLP", "DISTSUBTIMEFRAME"}};
-      for (auto& output : pc.services().get<DeviceSpec const>().outputs) {
+      auto& streamContext = pc.services().get<StreamContext>();
+      for (size_t oi = 0; oi < pc.services().get<DeviceSpec const>().outputs.size(); ++oi) {
+        OutputRoute const& output = pc.services().get<DeviceSpec const>().outputs[oi];
         if ((output.timeslice % output.maxTimeslices) != 0) {
           continue;
         }
@@ -425,10 +485,13 @@ o2::framework::ServiceSpec CommonServices::ccdbSupportSpec()
           if (concrete.subSpec == 0) {
             continue;
           }
-          auto& stfDist = pc.outputs().make<o2::header::STFHeader>(Output{concrete.origin, concrete.description, concrete.subSpec, output.matcher.lifetime});
-          stfDist.id = dph->startTime;
-          stfDist.firstOrbit = dh->firstTForbit;
-          stfDist.runNumber = dh->runNumber;
+          auto& stfDist = pc.outputs().make<o2::header::STFHeader>(Output{concrete.origin, concrete.description, concrete.subSpec});
+          stfDist.id = timingInfo.timeslice;
+          stfDist.firstOrbit = timingInfo.firstTForbit;
+          stfDist.runNumber = timingInfo.runNumber;
+          // We mark it as not created, because we do should not account for it when
+          // checking if we created all the data for a timeslice.
+          streamContext.routeUserCreated[oi] = false;
         }
       } },
     .kind = ServiceKind::Global};
@@ -457,15 +520,21 @@ o2::framework::ServiceSpec CommonServices::decongestionSpec()
     },
     .postForwarding = [](ProcessingContext& ctx, void* service) {
       auto* decongestion = reinterpret_cast<DecongestionService*>(service);
-      if (decongestion->isFirstInTopology == false) {
-        LOGP(debug, "We are not the first in the topology, do not update the oldest possible timeslice");
+      if (O2_BUILTIN_LIKELY(decongestion->isFirstInTopology == false)) {
         return;
       }
+      O2_SIGNPOST_ID_FROM_POINTER(cid, data_processor_context, service);
+      O2_SIGNPOST_EVENT_EMIT(data_processor_context, cid, "postForwardingCallbacks", "We are the first one in the topology, we need to update the oldest possible timeslice");
       auto& timesliceIndex = ctx.services().get<TimesliceIndex>();
       auto& relayer = ctx.services().get<DataRelayer>();
       timesliceIndex.updateOldestPossibleOutput();
       auto& proxy = ctx.services().get<FairMQDeviceProxy>();
       auto oldestPossibleOutput = relayer.getOldestPossibleOutput();
+      if (decongestion->nextEnumerationTimesliceRewinded && decongestion->nextEnumerationTimeslice < oldestPossibleOutput.timeslice.value) {
+        LOGP(detail, "Not sending oldestPossible if nextEnumerationTimeslice was rewinded");
+        return;
+      }
+
       if (decongestion->lastTimeslice && oldestPossibleOutput.timeslice.value == decongestion->lastTimeslice) {
         LOGP(debug, "Not sending already sent value");
         return;
@@ -502,6 +571,18 @@ o2::framework::ServiceSpec CommonServices::decongestionSpec()
         }
       }
       decongestion->lastTimeslice = oldestPossibleOutput.timeslice.value; },
+    .stop = [](ServiceRegistryRef services, void* service) {
+      auto* decongestion = (DecongestionService*)service;
+      services.get<TimesliceIndex>().reset();
+      decongestion->nextEnumerationTimeslice = 0;
+      decongestion->nextEnumerationTimesliceRewinded = false;
+      decongestion->lastTimeslice = 0;
+      decongestion->nextTimeslice = 0;
+      decongestion->oldestPossibleTimesliceTask = {0};
+      auto &state = services.get<DeviceState>();
+      for (auto &channel : state.inputChannelInfos) {
+        channel.oldestForChannel = {0};
+      } },
     .domainInfoUpdated = [](ServiceRegistryRef services, size_t oldestPossibleTimeslice, ChannelIndex channel) {
       auto& decongestion = services.get<DecongestionService>();
       auto& relayer = services.get<DataRelayer>();
@@ -747,6 +828,10 @@ o2::framework::ServiceSpec CommonServices::dataProcessingStats()
                    .metricId = (int)ProcessingStatsId::LAST_ELAPSED_TIME_MS,
                    .kind = Kind::UInt64,
                    .minPublishInterval = quickUpdateInterval},
+        MetricSpec{.name = "total_wall_time_ms",
+                   .metricId = (int)ProcessingStatsId::TOTAL_WALL_TIME_MS,
+                   .kind = Kind::UInt64,
+                   .minPublishInterval = quickUpdateInterval},
         MetricSpec{.name = "last_processed_input_size_byte",
                    .metricId = (int)ProcessingStatsId::LAST_PROCESSED_SIZE,
                    .kind = Kind::UInt64,
@@ -925,8 +1010,7 @@ o2::framework::ServiceSpec CommonServices::dataProcessingStats()
     .configure = noConfiguration(),
     .preProcessing = [](ProcessingContext& context, void* service) {
       auto* stats = (DataProcessingStats*)service;
-      flushMetrics(context.services(), *stats);
-    },
+      flushMetrics(context.services(), *stats); },
     .postProcessing = [](ProcessingContext& context, void* service) {
       auto* stats = (DataProcessingStats*)service;
       stats->updateStats({(short)ProcessingStatsId::PERFORMED_COMPUTATIONS, DataProcessingStats::Op::Add, 1});

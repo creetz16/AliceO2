@@ -35,6 +35,9 @@
 #include "Framework/TMessageSerializer.h"
 #include "Framework/InputRecord.h"
 #include "Framework/InputSpan.h"
+#if defined(__APPLE__) || defined(NDEBUG)
+#define O2_SIGNPOST_IMPLEMENTATION
+#endif
 #include "Framework/Signpost.h"
 #include "Framework/TimingHelpers.h"
 #include "Framework/SourceInfoHeader.h"
@@ -79,6 +82,8 @@
 #include <execinfo.h>
 #include <sstream>
 #include <boost/property_tree/json_parser.hpp>
+
+O2_DECLARE_DYNAMIC_LOG(device);
 
 using namespace o2::framework;
 using ConfigurationInterface = o2::configuration::ConfigurationInterface;
@@ -136,15 +141,16 @@ DataProcessingDevice::DataProcessingDevice(RunningDeviceRef running, ServiceRegi
     mServiceRegistry{registry},
     mProcessingPolicies{policies}
 {
-  GetConfig()->Subscribe<std::string>("dpl", [&cleanupCount = mCleanupCount, &registry = mServiceRegistry](const std::string& key, std::string value) {
+  GetConfig()->Subscribe<std::string>("dpl", [&registry = mServiceRegistry](const std::string& key, std::string value) {
     if (key == "cleanup") {
+      auto ref = ServiceRegistryRef{registry, ServiceRegistry::globalDeviceSalt()};
+      auto& deviceState = ref.get<DeviceState>();
+      int64_t cleanupCount = deviceState.cleanupCount.load();
       int64_t newCleanupCount = std::stoll(value);
       if (newCleanupCount <= cleanupCount) {
         return;
       }
-      cleanupCount = newCleanupCount;
-      auto ref = ServiceRegistryRef{registry, ServiceRegistry::globalDeviceSalt()};
-      auto& deviceState = ref.get<DeviceState>();
+      deviceState.cleanupCount.store(newCleanupCount);
       for (auto& info : deviceState.inputChannelInfos) {
         fair::mq::Parts parts;
         while (info.channel->Receive(parts, 0)) {
@@ -273,21 +279,22 @@ struct PollerContext {
 void on_socket_polled(uv_poll_t* poller, int status, int events)
 {
   auto* context = (PollerContext*)poller->data;
+  assert(context);
+  O2_SIGNPOST_ID_FROM_POINTER(sid, device, poller);
   context->state->loopReason |= DeviceState::DATA_SOCKET_POLLED;
   switch (events) {
     case UV_READABLE: {
-      ZoneScopedN("socket readable event");
-      LOG(debug) << "socket polled UV_READABLE: " << context->name;
+      O2_SIGNPOST_EVENT_EMIT(device, sid, "socket_state", "Data pending on socket for channel %{public}s", context->name);
       context->state->loopReason |= DeviceState::DATA_INCOMING;
     } break;
     case UV_WRITABLE: {
-      ZoneScopedN("socket writeable");
+      O2_SIGNPOST_END(device, sid, "socket_state", "Socket connected for channel %{public}s", context->name);
       if (context->read) {
-        LOG(debug) << "socket polled UV_CONNECT" << context->name;
+        O2_SIGNPOST_START(device, sid, "socket_state", "Socket connected for read in context %{public}s", context->name);
         uv_poll_start(poller, UV_READABLE | UV_DISCONNECT | UV_PRIORITIZED, &on_socket_polled);
         context->state->loopReason |= DeviceState::DATA_CONNECTED;
       } else {
-        LOG(debug) << "socket polled UV_WRITABLE" << context->name;
+        O2_SIGNPOST_START(device, sid, "socket_state", "Socket connected for write for channel %{public}s", context->name);
         context->state->loopReason |= DeviceState::DATA_OUTGOING;
         // If the socket is writable, fairmq will handle the rest, so we can stop polling and
         // just wait for the disconnect.
@@ -296,12 +303,10 @@ void on_socket_polled(uv_poll_t* poller, int status, int events)
       context->pollerState = PollerContext::PollerState::Connected;
     } break;
     case UV_DISCONNECT: {
-      ZoneScopedN("socket disconnect");
-      LOG(debug) << "socket polled UV_DISCONNECT";
+      O2_SIGNPOST_END(device, sid, "socket_state", "Socket disconnected in context %{public}s", context->name);
     } break;
     case UV_PRIORITIZED: {
-      ZoneScopedN("socket prioritized");
-      LOG(debug) << "socket polled UV_PRIORITIZED";
+      O2_SIGNPOST_EVENT_EMIT(device, sid, "socket_state", "Data pending on socket for context %{public}s", context->name);
     } break;
   }
   // We do nothing, all the logic for now stays in DataProcessingDevice::doRun()
@@ -490,9 +495,14 @@ void DataProcessingDevice::Init()
 
 void on_signal_callback(uv_signal_t* handle, int signum)
 {
-  ZoneScopedN("Signal callaback");
-  LOG(debug) << "Signal " << signum << " received.";
+  O2_SIGNPOST_ID_FROM_POINTER(sid, device, handle);
+  O2_SIGNPOST_START(device, sid, "signal_state", "Signal %d received.", signum);
+
   auto* registry = (ServiceRegistry*)handle->data;
+  if (!registry) {
+    O2_SIGNPOST_END(device, sid, "signal_state", "No registry active. Ignoring signal.");
+    return;
+  }
   ServiceRegistryRef ref{*registry};
   auto& state = ref.get<DeviceState>();
   auto& quotaEvaluator = ref.get<ComputingQuotaEvaluator>();
@@ -507,6 +517,7 @@ void on_signal_callback(uv_signal_t* handle, int signum)
     //        available and being offered, however we
     //        want to get out of the woods for now.
     if (offer.valid && offer.sharedMemory != 0) {
+      O2_SIGNPOST_END(device, sid, "signal_state", "Memory already offered.");
       return;
     }
     ri++;
@@ -523,6 +534,7 @@ void on_signal_callback(uv_signal_t* handle, int signum)
     }
   }
   stats.updateStats({(int)ProcessingStatsId::TOTAL_SIGUSR1, DataProcessingStats::Op::Add, 1});
+  O2_SIGNPOST_END(device, sid, "signal_state", "Done processing signals.");
 }
 
 static auto toBeForwardedHeader = [](void* header) -> bool {
@@ -868,7 +880,9 @@ void DataProcessingDevice::startPollers()
   auto& deviceContext = ref.get<DeviceContext>();
   auto& state = ref.get<DeviceState>();
 
-  for (auto& poller : state.activeInputPollers) {
+  for (auto* poller : state.activeInputPollers) {
+    O2_SIGNPOST_ID_FROM_POINTER(sid, device, poller);
+    O2_SIGNPOST_START(device, sid, "socket_state", "Input socket waiting for connection.");
     uv_poll_start(poller, UV_WRITABLE, &on_socket_polled);
     ((PollerContext*)poller->data)->pollerState = PollerContext::PollerState::Disconnected;
   }
@@ -876,7 +890,9 @@ void DataProcessingDevice::startPollers()
     uv_poll_start(poller, UV_WRITABLE, &on_out_of_band_polled);
     ((PollerContext*)poller->data)->pollerState = PollerContext::PollerState::Disconnected;
   }
-  for (auto& poller : state.activeOutputPollers) {
+  for (auto* poller : state.activeOutputPollers) {
+    O2_SIGNPOST_ID_FROM_POINTER(sid, device, poller);
+    O2_SIGNPOST_START(device, sid, "socket_state", "Output socket waiting for connection.");
     uv_poll_start(poller, UV_WRITABLE, &on_socket_polled);
     ((PollerContext*)poller->data)->pollerState = PollerContext::PollerState::Disconnected;
   }
@@ -892,17 +908,21 @@ void DataProcessingDevice::stopPollers()
   auto& deviceContext = ref.get<DeviceContext>();
   auto& state = ref.get<DeviceState>();
   LOGP(detail, "Stopping {} input pollers", state.activeInputPollers.size());
-  for (auto& poller : state.activeInputPollers) {
+  for (auto* poller : state.activeInputPollers) {
+    O2_SIGNPOST_ID_FROM_POINTER(sid, device, poller);
+    O2_SIGNPOST_END(device, sid, "socket_state", "Output socket closed.");
     uv_poll_stop(poller);
     ((PollerContext*)poller->data)->pollerState = PollerContext::PollerState::Stopped;
   }
   LOGP(detail, "Stopping {} out of band pollers", state.activeOutOfBandPollers.size());
-  for (auto& poller : state.activeOutOfBandPollers) {
+  for (auto* poller : state.activeOutOfBandPollers) {
     uv_poll_stop(poller);
     ((PollerContext*)poller->data)->pollerState = PollerContext::PollerState::Stopped;
   }
   LOGP(detail, "Stopping {} output pollers", state.activeOutOfBandPollers.size());
-  for (auto& poller : state.activeOutputPollers) {
+  for (auto* poller : state.activeOutputPollers) {
+    O2_SIGNPOST_ID_FROM_POINTER(sid, device, poller);
+    O2_SIGNPOST_END(device, sid, "socket_state", "Output socket closed.");
     uv_poll_stop(poller);
     ((PollerContext*)poller->data)->pollerState = PollerContext::PollerState::Stopped;
   }
@@ -957,9 +977,12 @@ void DataProcessingDevice::InitTask()
       LOG(detail) << "ptr: " << info.ptr;
       LOG(detail) << "size: " << info.size;
       LOG(detail) << "flags: " << info.flags;
-      context.expectedRegionCallbacks -= 1;
+      // Now we check for pending events with the mutex,
+      // so the lines below are atomic.
       pendingRegionInfos.push_back(info);
-      // We always want to handle these on the main loop
+      context.expectedRegionCallbacks -= 1;
+      // We always want to handle these on the main loop,
+      // so we awake it.
       ServiceRegistryRef ref{registry};
       uv_async_send(ref.get<DeviceState>().awakeMainThread);
     });
@@ -969,10 +992,18 @@ void DataProcessingDevice::InitTask()
   // an event from the outside, making sure that the event loop can
   // be unblocked (e.g. by a quitting DPL driver) even when there
   // is no data pending to be processed.
-  auto* sigusr1Handle = (uv_signal_t*)malloc(sizeof(uv_signal_t));
-  uv_signal_init(state.loop, sigusr1Handle);
-  sigusr1Handle->data = &mServiceRegistry;
-  uv_signal_start(sigusr1Handle, on_signal_callback, SIGUSR1);
+  if (deviceContext.sigusr1Handle == nullptr) {
+    deviceContext.sigusr1Handle = (uv_signal_t*)malloc(sizeof(uv_signal_t));
+    deviceContext.sigusr1Handle->data = &mServiceRegistry;
+    uv_signal_init(state.loop, deviceContext.sigusr1Handle);
+    uv_signal_start(deviceContext.sigusr1Handle, on_signal_callback, SIGUSR1);
+  }
+  // If there is any signal, we want to make sure they are active
+  for (auto& handle : state.activeSignals) {
+    handle->data = &state;
+  }
+  // When we start, we must make sure that we do listen to the signal
+  deviceContext.sigusr1Handle->data = &mServiceRegistry;
 
   /// Initialise the pollers
   DataProcessingDevice::initPollers();
@@ -991,11 +1022,17 @@ void DataProcessingDevice::InitTask()
   // We will get there.
   this->fillContext(mServiceRegistry.get<DataProcessorContext>(ServiceRegistry::globalDeviceSalt()), deviceContext);
 
+  auto hasPendingEvents = [&mutex = mRegionInfoMutex, &pendingRegionInfos = mPendingRegionInfos](DeviceContext& deviceContext) {
+    std::lock_guard<std::mutex> lock(mutex);
+    return (pendingRegionInfos.empty() == false) || deviceContext.expectedRegionCallbacks > 0;
+  };
   /// We now run an event loop also in InitTask. This is needed to:
   /// * Make sure region registration callbacks are invoked
   /// on the main thread.
   /// * Wait for enough callbacks to be delivered before moving to START
-  while (deviceContext.expectedRegionCallbacks > 0 && uv_run(state.loop, UV_RUN_ONCE)) {
+  while (hasPendingEvents(deviceContext)) {
+    // Wait for the callback to signal its done, so that we do not busy wait.
+    uv_run(state.loop, UV_RUN_ONCE);
     // Handle callbacks if any
     {
       std::lock_guard<std::mutex> lock(mRegionInfoMutex);
@@ -1666,6 +1703,19 @@ void DataProcessingDevice::ResetTask()
 {
   ServiceRegistryRef ref{mServiceRegistry};
   ref.get<DataRelayer>().clear();
+  auto& deviceContext = ref.get<DeviceContext>();
+  // If the signal handler is there, we should
+  // hide the registry from it, so that we do not
+  // end up calling the signal handler on something
+  // which might not be there anymore.
+  if (deviceContext.sigusr1Handle) {
+    deviceContext.sigusr1Handle->data = nullptr;
+  }
+  // Makes sure we do not have a working context on
+  // shutdown.
+  for (auto& handle : ref.get<DeviceState>().activeSignals) {
+    handle->data = nullptr;
+  }
 }
 
 struct WaitBackpressurePolicy {
@@ -2168,11 +2218,17 @@ bool DataProcessingDevice::tryDispatchComputation(ServiceRegistryRef ref, std::v
       buffer[ai] = record.isValid(ai) ? '3' : '0';
     }
     buffer[record.size()] = 0;
-    states.updateState({.id = short((int)ProcessingStateId::DATA_RELAYER_BASE + action.slot.index), (int)(record.size() + buffer - relayerSlotState), relayerSlotState});
+    states.updateState({.id = short((int)ProcessingStateId::DATA_RELAYER_BASE + action.slot.index),
+                        .size = (int)(record.size() + buffer - relayerSlotState),
+                        .data = relayerSlotState});
     uint64_t tEnd = uv_hrtime();
-    stats.updateStats({(int)ProcessingStatsId::LAST_ELAPSED_TIME_MS, DataProcessingStats::Op::Set, (int64_t)(tEnd - tStart)});
+    // tEnd and tStart are in nanoseconds according to https://docs.libuv.org/en/v1.x/misc.html#c.uv_hrtime
+    int64_t wallTimeMs = (tEnd - tStart) / 1000000;
+    stats.updateStats({(int)ProcessingStatsId::LAST_ELAPSED_TIME_MS, DataProcessingStats::Op::Set, wallTimeMs});
+    // Sum up the total wall time, in milliseconds.
+    stats.updateStats({(int)ProcessingStatsId::TOTAL_WALL_TIME_MS, DataProcessingStats::Op::Add, wallTimeMs});
     // The time interval is in seconds while tEnd - tStart is in nanoseconds, so we divide by 1000000 to get the fraction in ms/s.
-    stats.updateStats({(short)ProcessingStatsId::CPU_USAGE_FRACTION, DataProcessingStats::Op::CumulativeRate, (int64_t)(tEnd - tStart) / 1000000});
+    stats.updateStats({(short)ProcessingStatsId::CPU_USAGE_FRACTION, DataProcessingStats::Op::CumulativeRate, wallTimeMs});
     stats.updateStats({(int)ProcessingStatsId::LAST_PROCESSED_SIZE, DataProcessingStats::Op::Set, calculateTotalInputRecordSize(record)});
     stats.updateStats({(int)ProcessingStatsId::TOTAL_PROCESSED_SIZE, DataProcessingStats::Op::Add, calculateTotalInputRecordSize(record)});
     auto latency = calculateInputRecordLatency(record, tStartMilli);
@@ -2193,7 +2249,7 @@ bool DataProcessingDevice::tryDispatchComputation(ServiceRegistryRef ref, std::v
       buffer[ai] = record.isValid(ai) ? '2' : '0';
     }
     buffer[record.size()] = 0;
-    states.updateState({.id = short((int)ProcessingStateId::DATA_RELAYER_BASE + action.slot.index), (int)(record.size() + buffer - relayerSlotState), relayerSlotState});
+    states.updateState({.id = short((int)ProcessingStateId::DATA_RELAYER_BASE + action.slot.index), .size = (int)(record.size() + buffer - relayerSlotState), .data = relayerSlotState});
   };
 
   // This is the main dispatching loop
@@ -2293,6 +2349,15 @@ bool DataProcessingDevice::tryDispatchComputation(ServiceRegistryRef ref, std::v
         if (context.isSink && action.op == CompletionPolicy::CompletionOp::Consume) {
           auto& allocator = ref.get<DataAllocator>();
           allocator.make<int>(OutputRef{"dpl-summary", compile_time_hash(spec.name.c_str())}, 1);
+        }
+
+        // Extra callback which allows a service to add extra outputs.
+        // This is needed e.g. to ensure that injected CCDB outputs are added
+        // before an end of stream.
+        {
+          ref.get<CallbackService>().call<CallbackService::Id::FinaliseOutputs>(o2::framework::ServiceRegistryRef{ref}, (int)action.op);
+          dpContext.finaliseOutputsCallbacks(processContext);
+          streamContext.finaliseOutputsCallbacks(processContext);
         }
 
         {

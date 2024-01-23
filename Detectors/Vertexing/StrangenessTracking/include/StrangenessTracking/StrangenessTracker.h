@@ -506,6 +506,7 @@ class StrangenessTracker
   o2::base::PropagatorImpl<float>::MatCorrType mCorrType = o2::base::PropagatorImpl<float>::MatCorrType::USEMatCorrNONE; // use mat correction
 
   std::vector<std::vector<o2::track::TrackParCovF>> mDaughterTracks; // vector of daughter tracks (per thread)
+
   ClusAttachments mStructClus;                          // # of attached tracks, 1 for mother, 2 for daughter
   KFParticle kfpMother;                                  // mother KFParticle
   o2::track::PID pidV0;                                  // PID hypothesis for the V0 fitting

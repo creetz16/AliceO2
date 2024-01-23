@@ -62,6 +62,8 @@ class Tracker
 
   void clustersToTracks(
     std::function<void(std::string s)> = [](std::string s) { std::cout << s << std::endl; }, std::function<void(std::string s)> = [](std::string s) { std::cerr << s << std::endl; });
+  void clustersToTracksHybrid(
+    std::function<void(std::string s)> = [](std::string s) { std::cout << s << std::endl; }, std::function<void(std::string s)> = [](std::string s) { std::cerr << s << std::endl; });
   std::vector<TrackITSExt>& getTracks();
 
   void setParameters(const std::vector<TrackingParameters>&);
@@ -76,10 +78,18 @@ class Tracker
 
  private:
   void initialiseTimeFrame(int& iteration);
-  void computeTracklets(int& iteration);
+  void computeTracklets(int& iteration, int& iROFslice, int& iVertex);
   void computeCells(int& iteration);
   void findCellsNeighbours(int& iteration);
   void findRoads(int& iteration);
+
+  void initialiseTimeFrameHybrid(int& iteration);
+  void computeTrackletsHybrid(int& iteration, int& iROFslice, int& iVertex);
+  void computeCellsHybrid(int& iteration);
+  void findCellsNeighboursHybrid(int& iteration);
+  void findRoadsHybrid(int& iteration);
+  void findTracksHybrid(int& iteration);
+
   void findShortPrimaries();
   void findTracks();
   void extendTracks(int& iteration);
