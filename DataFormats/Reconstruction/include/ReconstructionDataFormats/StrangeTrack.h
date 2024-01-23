@@ -34,6 +34,7 @@ struct StrangeTrack {
   unsigned int mITSRef = -99;
   unsigned int mDecayRef = -99;
   std::array<float, 3> mDecayVtx;
+  std::array<float, 3> mDecayVtxErr;
   std::array<float, 3> mDecayMom;
   std::array<float, 2> mMasses; // V0: hypertriton and hyperhydrongen4, cascade: Xi and Omega.
   float mITSClusSize = -99;
