@@ -58,6 +58,7 @@ void StrangenessTrackerSpec::init(framework::InitContext& ic)
   mTracker.setConfigParams(&StrangenessTrackingParamConfig::Instance());
   mTracker.setupThreads(1);
   mTracker.setupFitters();
+  mTracker.setPID();
 
   LOG(info) << "Initialized strangeness tracker...";
 }

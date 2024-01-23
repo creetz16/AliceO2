@@ -164,6 +164,10 @@ set_package_properties(Clang PROPERTIES TYPE OPTIONAL)
 endif()
 
 if(CMAKE_PROJECT_NAME STREQUAL "O2")
+
+find_package(KFParticle)
+set_package_properties(KFParticle PROPERTIES TYPE REQUIRED)
+
 find_package(O2GPU)
 endif()
 
