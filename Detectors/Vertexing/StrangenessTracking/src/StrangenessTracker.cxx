@@ -291,7 +291,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR, StrangeTrack& strang
     LOG(debug) << "decayR: " << decayR << ", diffR: " << diffR << ", clus rad: " << clusRad << ", radTol: " << radTol;
     if (relDiffR > -radTol) {
       LOG(debug) << "Try to attach cluster to Mother, layer: " << geom->getLayer(clus.getSensorID());
-      if (updateTrack(clus, strangeTrack.mMother)) {
+      if (updateTrack(clus, strangeTrack.mMother)) { // after updateTrack strangeTrack.mMother is cascade with updated information from cluster???? --> don't we need correlated KF implementation then??
         motherClusters.push_back(clus);
         motherClusSizes.push_back(compClus);
         nAttachments[geom->getLayer(clus.getSensorID())] = 0;
@@ -389,6 +389,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR, StrangeTrack& strang
     } else if (strangeTrack.mPartType == dataformats::kStrkCascade) { // create KFParticle with Xi hypothesis
       kfpTracklet = createKFParticleFromTrackParCov(decayVtxTrackClone, -1, o2::constants::physics::MassXiMinus);
     }
+    
 
     /// transformed KFParticle object "kfpTracklet" can be used to constrain mother parameters at decay vertex
     /// "kfpTracklet" is used as measurement to constrain "kfpMother" parameters
@@ -431,7 +432,7 @@ bool StrangenessTracker::updateTrack(const ITSCluster& clus, o2::track::TrackPar
     return false;
   }
 
-  if (!track.update(clus)) {
+  if (!track.update(clus)) { /// Here the track parameters are updated with the cluster information ????
     return false;
   }
 
