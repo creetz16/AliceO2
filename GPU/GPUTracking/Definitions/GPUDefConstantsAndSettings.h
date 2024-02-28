@@ -35,7 +35,7 @@
 #define GPUCA_MERGER_MAX_TRACK_CLUSTERS 1000          // Maximum number of clusters a track may have after merging
 
 #define GPUCA_MAXN 40                                 // Maximum number of neighbor hits to consider in one row in neightbors finder
-#define GPUCA_MIN_TRACK_PTB5_DEFAULT 0.010            // Default setting for minimum track Pt at some places (at B=0.5T)
+#define GPUCA_MIN_TRACK_PTB5_DEFAULT 0.010f           // Default setting for minimum track Pt at some places (at B=0.5T)
 #define GPUCA_MIN_TRACK_PTB5_REJECT_DEFAULT 0.050f    // Default setting for Pt (at B=0.5T) where tracks are rejected
 
 #define GPUCA_MAX_SIN_PHI_LOW 0.99f                   // Limits for maximum sin phi during fit
@@ -45,6 +45,8 @@
 #define GPUCA_MAX_BIN_SIZE 1000.f                     // Maximum bin size in TPC fast access grid
 
 #define GPUCA_TPC_COMP_CHUNK_SIZE 1024                // Chunk size of sorted unattached TPC cluster in compression
+
+#define TPC_MAX_TIME_BIN_TRIGGERED 600
 
 #if defined(GPUCA_HAVE_O2HEADERS) && (!defined(__OPENCL__) || defined(__OPENCLCPP__)) && !(defined(ROOT_VERSION_CODE) && ROOT_VERSION_CODE < 393216) && defined(__has_include)
   #if __has_include("DataFormatsTPC/Constants.h")
@@ -68,7 +70,6 @@
 //#define GPUCA_FULL_CLUSTERDATA                      // Store all cluster information in the cluster data, also those not needed for tracking.
 //#define GPUCA_TPC_RAW_PROPAGATE_PAD_ROW_TIME        // Propagate Pad, Row, Time cluster information to GM
 //#define GPUCA_GM_USE_FULL_FIELD                     // Use offline magnetic field during GMPropagator prolongation
-//#define GPUCA_TPC_USE_STAT_ERROR                    // Use statistical errors from offline in track fit
 
 // clang-format on
 

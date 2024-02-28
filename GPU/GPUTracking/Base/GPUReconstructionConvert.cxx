@@ -109,8 +109,8 @@ void GPUReconstructionConvert::ConvertRun2RawToNative(o2::tpc::ClusterNativeAcce
       ClusterNative& c = nativeBuffer[native.clusterOffset[i][row] + native.nClusters[i][row]++];
       c.setTimeFlags(org.GetTime(), org.GetFlags());
       c.setPad(org.GetPad());
-      c.setSigmaTime(std::sqrt(org.GetSigmaTime2()));
-      c.setSigmaPad(std::sqrt(org.GetSigmaPad2()));
+      c.setSigmaTime(CAMath::Sqrt(org.GetSigmaTime2()));
+      c.setSigmaPad(CAMath::Sqrt(org.GetSigmaPad2()));
       c.qMax = org.GetQMax();
       c.qTot = org.GetCharge();
     }
@@ -1308,7 +1308,7 @@ size_t zsEncoderRun<T>::compare(std::vector<zsPage>* buffer, std::vector<o2::tpc
   } else {
     for (unsigned int j = 0; j < tmpBuffer.size(); j++) {
       const float decodeBitsFactor = (1 << (encodeBits - 10));
-      const float c = (float)((int)(tmpBuffer[j].getChargeFloat() * decodeBitsFactor + 0.5f)) / decodeBitsFactor;
+      const float c = CAMath::Round(tmpBuffer[j].getChargeFloat() * decodeBitsFactor) / decodeBitsFactor;
       int ok = c == compareBuffer[j].getChargeFloat() && (int)tmpBuffer[j].getTimeStamp() == (int)compareBuffer[j].getTimeStamp() && (int)tmpBuffer[j].getPad() == (int)compareBuffer[j].getPad() && (int)tmpBuffer[j].getRow() == (int)compareBuffer[j].getRow();
       if (ok) {
         continue;
@@ -1450,9 +1450,9 @@ void GPUReconstructionConvert::RunZSFilter(std::unique_ptr<o2::tpc::Digit[]>* bu
           buffers[i][j] = buffers[i][k];
         }
         if (zs12bit) {
-          buffers[i][j].setCharge((float)((int)(buffers[i][j].getChargeFloat() * decodeBitsFactor + 0.5f)) / decodeBitsFactor);
+          buffers[i][j].setCharge(CAMath::Round(buffers[i][j].getChargeFloat() * decodeBitsFactor) / decodeBitsFactor);
         } else {
-          buffers[i][j].setCharge((float)((int)(buffers[i][j].getChargeFloat() + 0.5f)));
+          buffers[i][j].setCharge(CAMath::Round(buffers[i][j].getChargeFloat()));
         }
         j++;
       }
