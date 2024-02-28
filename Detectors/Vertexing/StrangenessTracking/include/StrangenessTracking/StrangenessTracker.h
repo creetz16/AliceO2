@@ -392,15 +392,12 @@ class StrangenessTracker
     float M, SigmaM;
     kfParticle.GetMass(M, SigmaM);
     strangeTrack.mMasses[0] = M;
-    strangeTrack.mDecayMom[0] = kfParticle.GetPx();
-    strangeTrack.mDecayMom[1] = kfParticle.GetPy();
-    strangeTrack.mDecayMom[2] = kfParticle.GetPz();
-    strangeTrack.mDecayVtx[0] = kfParticle.GetX();
-    strangeTrack.mDecayVtx[1] = kfParticle.GetY();
-    strangeTrack.mDecayVtx[2] = kfParticle.GetZ();
-    strangeTrack.mDecayVtxErr[0] = kfParticle.GetErrX();
-    strangeTrack.mDecayVtxErr[1] = kfParticle.GetErrY();
-    strangeTrack.mDecayVtxErr[2] = kfParticle.GetErrZ();
+    for (int i = 0; i < 8; i++) {
+      strangeTrack.mDecayParams[i] = kfParticle.GetParameter(i);
+    }
+    for (int i = 0; i < 36; i++) {
+      strangeTrack.mDecayCov[i] = kfParticle.GetCovariance(i); // lower triangular form of covariance matrix
+    }
     strangeTrack.mGeoChi2 = kfParticle.GetChi2();
     return true;
   }

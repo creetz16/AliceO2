@@ -389,12 +389,12 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR, StrangeTrack& strang
     } else if (strangeTrack.mPartType == dataformats::kStrkCascade) { // create KFParticle with Xi hypothesis
       kfpTracklet = createKFParticleFromTrackParCov(decayVtxTrackClone, -1, o2::constants::physics::MassXiMinus);
     }
+    /// IMPORTANT: energy of kfpTracklet should not be used in KF filtering of the next step since it is not measured but calculated from mass hypothesis.
     
-
     /// transformed KFParticle object "kfpTracklet" can be used to constrain mother parameters at decay vertex
     /// "kfpTracklet" is used as measurement to constrain "kfpMother" parameters
     /// TODO: add kinematic constraint with new KF functionality here!
-    /// ...
+    kfpMother.AddMeasurement(kfpTracklet);
 
   }
 
