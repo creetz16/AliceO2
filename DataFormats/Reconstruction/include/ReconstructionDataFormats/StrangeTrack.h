@@ -31,14 +31,17 @@ enum kPartType { kStrkV0,
 struct StrangeTrack {
   kPartType mPartType;
   o2::track::TrackParCovF mMother;
-  unsigned int mITSRef = -1;
-  unsigned int mDecayRef = -1;
+  unsigned int mITSRef = -99;
+  unsigned int mDecayRef = -99;
   std::array<float, 3> mDecayVtx;
   std::array<float, 3> mDecayMom;
+  std::array<float, 8> mDecayParams;
+  std::array<float, 36> mDecayCov;
   std::array<float, 2> mMasses; // V0: hypertriton and hyperhydrongen4, cascade: Xi and Omega.
-  float mITSClusSize;
-  float mMatchChi2;
-  float mTopoChi2;
+  float mITSClusSize = -99;
+  float mMatchChi2 = -99;
+  float mTopoChi2 = -99;
+  float mGeoChi2 = -99;
 };
 
 } // namespace dataformats
