@@ -57,7 +57,7 @@ uint32_t ChipStat::addErrors(const ChipPixelData& d, int verbosity)
   uint32_t res = 0;
   if (d.getErrorFlags()) {
     for (int i = NErrorsDefined; i--;) {
-      if (d.getErrorFlags() & (0x1 << i)) {
+      if (d.getErrorFlags() & (0x1UL << i)) {
         res |= ErrActions[i] & ErrActPropagate;
         if (verbosity > -1 && (!errorCounts[i] || verbosity > 1)) {
           LOGP(info, "New error registered at bc/orbit {}/{} on the FEEID:{:#04x} chip#{}: {}{}",
@@ -89,6 +89,20 @@ void ChipStat::print(bool skipNoErr, const std::string& pref) const
     }
     LOG(info) << rep;
   }
+}
+
+///_________________________________________________________________
+/// print chip decoding statistics
+std::string ChipStat::reportErrors(const ChipPixelData& d)
+{
+  std::string res;
+  for (int i = NErrorsDefined; i--;) {
+    if (d.getErrorFlags() & (0x1UL << i)) {
+      res += ErrNames[i];
+      res += " ";
+    }
+  }
+  return res;
 }
 
 ///_________________________________________________________________

@@ -21,6 +21,7 @@
 #include "Framework/ArrowTypes.h"
 #include "Framework/ArrowTableSlicingCache.h"
 #include "Framework/SliceCache.h"
+#include "Framework/VariantHelpers.h"
 #include <arrow/table.h>
 #include <arrow/array.h>
 #include <arrow/util/config.h>
@@ -67,6 +68,7 @@ struct Binding {
 
 void accessingInvalidIndexFor(const char* getter);
 void dereferenceWithWrongType();
+void missingFilterDeclaration(int hash, int ai);
 
 template <typename... C>
 auto createFieldsFromColumns(framework::pack<C...>)
@@ -558,6 +560,9 @@ template <typename T>
 constexpr auto is_persistent_v = is_persistent_t<T>::value;
 
 template <typename T>
+constexpr auto is_dynamic_v = is_dynamic_t<T>::value;
+
+template <typename T>
 using is_external_index_t = typename std::conditional<is_index_column_v<T>, std::true_type, std::false_type>::type;
 
 template <typename T>
@@ -582,86 +587,7 @@ struct IndexPolicyBase {
 };
 
 struct RowViewSentinel {
-  uint64_t const index;
-};
-
-struct DefaultIndexPolicy : IndexPolicyBase {
-  /// Needed to be able to copy the policy
-  DefaultIndexPolicy() = default;
-  DefaultIndexPolicy(DefaultIndexPolicy&&) = default;
-  DefaultIndexPolicy(DefaultIndexPolicy const&) = default;
-  DefaultIndexPolicy& operator=(DefaultIndexPolicy const&) = default;
-  DefaultIndexPolicy& operator=(DefaultIndexPolicy&&) = default;
-
-  /// mMaxRow is one behind the last row, so effectively equal to the number of
-  /// rows @a nRows. Offset indicates that the index is actually part of
-  /// a larger
-  DefaultIndexPolicy(int64_t nRows, uint64_t offset)
-    : IndexPolicyBase{0, offset},
-      mMaxRow(nRows)
-  {
-  }
-
-  void limitRange(int64_t start, int64_t end)
-  {
-    this->setCursor(start);
-    if (end >= 0) {
-      mMaxRow = std::min(end, mMaxRow);
-    }
-  }
-
-  [[nodiscard]] std::tuple<int64_t const*, int64_t const*>
-    getIndices() const
-  {
-    return std::make_tuple(&mRowIndex, &mRowIndex);
-  }
-
-  [[nodiscard]] std::tuple<uint64_t const*>
-    getOffsets() const
-  {
-    return std::make_tuple(&mOffset);
-  }
-
-  void setCursor(int64_t i)
-  {
-    this->mRowIndex = i;
-  }
-  void moveByIndex(int64_t i)
-  {
-    this->mRowIndex += i;
-  }
-
-  void moveToEnd()
-  {
-    this->setCursor(mMaxRow);
-  }
-
-  friend bool operator!=(DefaultIndexPolicy const& lh, DefaultIndexPolicy const& rh)
-  {
-    return O2_BUILTIN_LIKELY(lh.mRowIndex != rh.mRowIndex);
-  }
-
-  friend bool operator==(DefaultIndexPolicy const& lh, DefaultIndexPolicy const& rh)
-  {
-    return O2_BUILTIN_UNLIKELY(lh.mRowIndex == rh.mRowIndex);
-  }
-
-  bool operator!=(RowViewSentinel const& sentinel) const
-  {
-    return O2_BUILTIN_LIKELY(this->mRowIndex != sentinel.index);
-  }
-
-  bool operator==(RowViewSentinel const& sentinel) const
-  {
-    return O2_BUILTIN_UNLIKELY(this->mRowIndex == sentinel.index);
-  }
-
-  [[nodiscard]] auto size() const
-  {
-    return mMaxRow;
-  }
-
-  int64_t mMaxRow = 0;
+  int64_t const index;
 };
 
 struct FilteredIndexPolicy : IndexPolicyBase {
@@ -670,10 +596,11 @@ struct FilteredIndexPolicy : IndexPolicyBase {
   // which happens below which will properly setup the first index
   // by remapping the filtered index 0 to whatever unfiltered index
   // it belongs to.
-  FilteredIndexPolicy(gsl::span<int64_t const> selection, uint64_t offset = 0)
+  FilteredIndexPolicy(gsl::span<int64_t const> selection, int64_t rows, uint64_t offset = 0)
     : IndexPolicyBase{-1, offset},
       mSelectedRows(selection),
-      mMaxSelection(selection.size())
+      mMaxSelection(selection.size()),
+      nRows{rows}
   {
     this->setCursor(0);
   }
@@ -723,19 +650,9 @@ struct FilteredIndexPolicy : IndexPolicyBase {
     updateRow();
   }
 
-  bool operator!=(FilteredIndexPolicy const& other) const
+  friend bool operator==(FilteredIndexPolicy const& lh, FilteredIndexPolicy const& rh)
   {
-    return O2_BUILTIN_LIKELY(mSelectionRow != other.mSelectionRow);
-  }
-
-  bool operator==(FilteredIndexPolicy const& other) const
-  {
-    return O2_BUILTIN_UNLIKELY(mSelectionRow == other.mSelectionRow);
-  }
-
-  bool operator!=(RowViewSentinel const& sentinel) const
-  {
-    return O2_BUILTIN_LIKELY(mSelectionRow != sentinel.index);
+    return lh.mSelectionRow == rh.mSelectionRow;
   }
 
   bool operator==(RowViewSentinel const& sentinel) const
@@ -762,6 +679,11 @@ struct FilteredIndexPolicy : IndexPolicyBase {
     return mMaxSelection;
   }
 
+  [[nodiscard]] auto raw_size() const
+  {
+    return nRows;
+  }
+
  private:
   inline void updateRow()
   {
@@ -770,6 +692,82 @@ struct FilteredIndexPolicy : IndexPolicyBase {
   gsl::span<int64_t const> mSelectedRows;
   int64_t mSelectionRow = 0;
   int64_t mMaxSelection = 0;
+  int64_t nRows = 0;
+};
+
+struct DefaultIndexPolicy : IndexPolicyBase {
+  /// Needed to be able to copy the policy
+  DefaultIndexPolicy() = default;
+  DefaultIndexPolicy(DefaultIndexPolicy&&) = default;
+  DefaultIndexPolicy(DefaultIndexPolicy const&) = default;
+  DefaultIndexPolicy& operator=(DefaultIndexPolicy const&) = default;
+  DefaultIndexPolicy& operator=(DefaultIndexPolicy&&) = default;
+
+  /// mMaxRow is one behind the last row, so effectively equal to the number of
+  /// rows @a nRows. Offset indicates that the index is actually part of
+  /// a larger
+  DefaultIndexPolicy(int64_t nRows, uint64_t offset)
+    : IndexPolicyBase{0, offset},
+      mMaxRow(nRows)
+  {
+  }
+
+  DefaultIndexPolicy(FilteredIndexPolicy const& other)
+    : IndexPolicyBase{0, other.mOffset},
+      mMaxRow(other.raw_size())
+  {
+  }
+
+  void limitRange(int64_t start, int64_t end)
+  {
+    this->setCursor(start);
+    if (end >= 0) {
+      mMaxRow = std::min(end, mMaxRow);
+    }
+  }
+
+  [[nodiscard]] std::tuple<int64_t const*, int64_t const*>
+    getIndices() const
+  {
+    return std::make_tuple(&mRowIndex, &mRowIndex);
+  }
+
+  [[nodiscard]] std::tuple<uint64_t const*>
+    getOffsets() const
+  {
+    return std::make_tuple(&mOffset);
+  }
+
+  void setCursor(int64_t i)
+  {
+    this->mRowIndex = i;
+  }
+  void moveByIndex(int64_t i)
+  {
+    this->mRowIndex += i;
+  }
+
+  void moveToEnd()
+  {
+    this->setCursor(mMaxRow);
+  }
+
+  friend bool operator==(DefaultIndexPolicy const& lh, DefaultIndexPolicy const& rh)
+  {
+    return lh.mRowIndex == rh.mRowIndex;
+  }
+
+  bool operator==(RowViewSentinel const& sentinel) const
+  {
+    return O2_BUILTIN_UNLIKELY(this->mRowIndex == sentinel.index);
+  }
+
+  [[nodiscard]] auto size() const
+  {
+    return mMaxRow;
+  }
+
+  int64_t mMaxRow = 0;
 };
 
 template <typename... C>
@@ -783,6 +781,11 @@ struct ColumnDataHolder {
   arrow::ChunkedArray* second;
 };
 
+template <typename T, typename B>
+concept CanBind = requires(T&& t) {
+  { t.B::mColumnIterator };
+};
+
 template <typename IP, typename... C>
 struct RowViewCore : public IP, C... {
  public:
@@ -790,7 +793,6 @@ struct RowViewCore : public IP, C... {
   using table_t = o2::soa::Table<C...>;
   using all_columns = framework::pack<C...>;
   using persistent_columns_t = framework::selected_pack<is_persistent_t, C...>;
-  using dynamic_columns_t = framework::selected_pack<is_dynamic_t, C...>;
   using index_columns_t = framework::selected_pack<is_index_t, C...>;
   constexpr inline static bool has_index_v = framework::pack_size(index_columns_t{}) > 0;
   using external_index_columns_t = framework::selected_pack<is_external_index_t, C...>;
@@ -800,8 +802,7 @@ struct RowViewCore : public IP, C... {
     : IP{policy},
       C(columnData[framework::has_type_at_v<C>(all_columns{})])...
   {
-    bindIterators(persistent_columns_t{});
-    bindAllDynamicColumns(dynamic_columns_t{});
+    bind();
     // In case we have an index column might need to constrain the actual
     // number of rows in the view to the range provided by the index.
     // FIXME: we should really understand what happens to an index when we
@@ -816,17 +817,22 @@ struct RowViewCore : public IP, C... {
     : IP{static_cast<IP const&>(other)},
       C(static_cast<C const&>(other))...
   {
-    bindIterators(persistent_columns_t{});
-    bindAllDynamicColumns(dynamic_columns_t{});
+    bind();
   }
 
   RowViewCore& operator=(RowViewCore other)
   {
     IP::operator=(static_cast<IP const&>(other));
     (void(static_cast<C&>(*this) = static_cast<C>(other)), ...);
-    bindIterators(persistent_columns_t{});
-    bindAllDynamicColumns(dynamic_columns_t{});
+    bind();
     return *this;
+  }
+
+  RowViewCore(RowViewCore<FilteredIndexPolicy, C...> const& other) requires std::is_same_v<IP, DefaultIndexPolicy>
+    : IP{static_cast<IP const&>(other)},
+      C(static_cast<C const&>(other))...
+  {
+    bind();
   }
 
   RowViewCore& operator++()
@@ -872,14 +878,6 @@ struct RowViewCore : public IP, C... {
   {
     return *this;
   }
-
-  /// Inequality operator. Actual implementation
-  /// depend on the policy we use for the index.
-  using IP::operator!=;
-
-  /// Equality operator. Actual implementation
-  /// depend on the policy we use for the index.
-  using IP::operator==;
 
   template <typename... CL, typename TA>
   void doSetCurrentIndex(framework::pack<CL...>, TA* current)
@@ -953,18 +951,15 @@ struct RowViewCore : public IP, C... {
 
   /// Helper which binds all the ColumnIterators to the
   /// index of a the associated RowView
-  template <typename... PC>
-  auto bindIterators(framework::pack<PC...>)
+  void bind()
   {
     using namespace o2::soa;
-    (void(PC::mColumnIterator.mCurrentPos = &this->mRowIndex), ...);
-  }
-
-  template <typename... DC>
-  auto bindAllDynamicColumns(framework::pack<DC...>)
-  {
-    using namespace o2::soa;
-    (bindDynamicColumn<DC>(typename DC::bindings_t{}), ...);
+    auto f = framework::overloaded  {
+      [this]<typename T>(T*) -> void requires is_persistent_v<T> { T::mColumnIterator.mCurrentPos = &this->mRowIndex; },
+      [this]<typename T>(T*) -> void requires is_dynamic_v<T> { bindDynamicColumn<T>(typename T::bindings_t{});},
+      [this]<typename T>(T*) -> void {},
+    };
+    (f(static_cast<C*>(nullptr)), ...);
     if constexpr (has_index_v) {
       this->setIndices(this->getIndices());
       this->setOffsets(this->getOffsets());
@@ -974,7 +969,27 @@ struct RowViewCore : public IP, C... {
   template <typename DC, typename... B>
   auto bindDynamicColumn(framework::pack<B...>)
   {
-    DC::boundIterators = std::make_tuple(&(B::mColumnIterator)...);
+    DC::boundIterators = std::make_tuple(getDynamicBinding<B>()...);
+  }
+
+  // Sometimes dynamic columns are defined for tables in
+  // the hope that it will be joined / extended with another one which provides
+  // the full set of bindings. This is to avoid a compilation
+  // error if constructor for the table or any other thing involving a missing
+  // binding is preinstanciated.
+  template <typename B>
+    requires(CanBind<typename table_t::iterator, B>)
+  decltype(auto) getDynamicBinding()
+  {
+    static_assert(std::is_same_v<decltype(&(static_cast<B*>(this)->mColumnIterator)), std::decay_t<decltype(B::mColumnIterator)>*>, "foo");
+    return &(static_cast<B*>(this)->mColumnIterator);
+    //return static_cast<std::decay_t<decltype(B::mColumnIterator)>*>(nullptr);
+  }
+
+  template <typename B>
+  decltype(auto) getDynamicBinding()
+  {
+    return static_cast<std::decay_t<decltype(B::mColumnIterator)>*>(nullptr);
   }
 };
 
@@ -1013,7 +1028,7 @@ struct is_binding_compatible : std::conditional_t<is_binding_compatible_v<T, typ
 };
 
 template <typename T>
-static std::string getLabelFromType()
+static constexpr std::string getLabelFromType()
 {
   if constexpr (soa::is_index_table_v<std::decay_t<T>>) {
     using TT = typename std::decay_t<T>::first_t;
@@ -1046,19 +1061,19 @@ static std::string getLabelFromType()
 }
 
 template <typename... C>
-static auto hasColumnForKey(framework::pack<C...>, std::string const& key)
+static constexpr auto hasColumnForKey(framework::pack<C...>, std::string const& key)
 {
   return ((C::inherited_t::mLabel == key) || ...);
 }
 
 template <typename T>
-static std::pair<bool, std::string> hasKey(std::string const& key)
+static constexpr std::pair<bool, std::string> hasKey(std::string const& key)
 {
   return {hasColumnForKey(typename T::persistent_columns_t{}, key), getLabelFromType<T>()};
 }
 
 template <typename... C>
-static auto haveKey(framework::pack<C...>, std::string const& key)
+static constexpr auto haveKey(framework::pack<C...>, std::string const& key)
 {
   return std::vector{hasKey<C>(key)...};
 }
@@ -1067,7 +1082,7 @@ void notFoundColumn(const char* label, const char* key);
 void missingOptionalPreslice(const char* label, const char* key);
 
 template <typename T, bool OPT = false>
-static std::string getLabelFromTypeForKey(std::string const& key)
+static constexpr std::string getLabelFromTypeForKey(std::string const& key)
 {
   if constexpr (soa::is_type_with_originals_v<std::decay_t<T>>) {
     using Os = typename std::decay_t<T>::originals;
@@ -1091,25 +1106,25 @@ static std::string getLabelFromTypeForKey(std::string const& key)
 }
 
 template <typename B, typename... C>
-constexpr static bool hasIndexTo(framework::pack<C...>&&)
+consteval static bool hasIndexTo(framework::pack<C...>&&)
 {
   return (o2::soa::is_binding_compatible_v<B, typename C::binding_t>() || ...);
 }
 
 template <typename B, typename... C>
-constexpr static bool hasSortedIndexTo(framework::pack<C...>&&)
+consteval static bool hasSortedIndexTo(framework::pack<C...>&&)
 {
   return ((C::sorted && o2::soa::is_binding_compatible_v<B, typename C::binding_t>()) || ...);
 }
 
 template <typename B, typename Z>
-constexpr static bool relatedByIndex()
+consteval static bool relatedByIndex()
 {
   return hasIndexTo<B>(typename Z::table_t::external_index_columns_t{});
 }
 
 template <typename B, typename Z>
-constexpr static bool relatedBySortedIndex()
+consteval static bool relatedBySortedIndex()
 {
   return hasSortedIndexTo<B>(typename Z::table_t::external_index_columns_t{});
 }
@@ -1197,6 +1212,20 @@ template <typename T>
 inline constexpr bool is_soa_iterator_v = framework::is_base_of_template_v<RowViewCore, T> || framework::is_specialization_v<T, RowViewCore>;
 
 template <typename T>
+inline consteval bool is_soa_filtered_iterator_v()
+{
+  if constexpr (!is_soa_iterator_v<T>) {
+    return false;
+  } else {
+    if constexpr (std::is_same_v<typename T::policy_t, soa::FilteredIndexPolicy>) {
+      return true;
+    } else {
+      return false;
+    }
+  }
+}
+
+template <typename T>
 using is_soa_table_t = typename framework::is_specialization<T, soa::Table>;
 
 template <typename T>
@@ -1212,7 +1241,7 @@ inline constexpr bool is_soa_filtered_v = framework::is_base_of_template_v<soa::
 
 /// Helper function to extract bound indices
 template <typename... Is>
-static constexpr auto extractBindings(framework::pack<Is...>)
+static consteval auto extractBindings(framework::pack<Is...>)
 {
   return framework::pack<typename Is::binding_t...>{};
 }
@@ -1403,6 +1432,13 @@ class Table
       return *this;
     }
 
+    template <typename P>
+    RowViewBase& operator=(RowViewBase<FilteredIndexPolicy, P, T...> other) requires std::is_same_v<IP, DefaultIndexPolicy>
+    {
+      static_cast<RowViewCore<IP, C...>&>(*this) = static_cast<RowViewCore<FilteredIndexPolicy, C...>>(other);
+      return *this;
+    }
+
     template <typename P, typename... O>
     RowViewBase(RowViewBase<IP, P, O...> const& other) requires std::is_same_v<typename P::table_t, typename Parent::table_t>
     {
@@ -1423,6 +1459,12 @@ class Table
 
     template <typename P>
     RowViewBase(RowViewBase<IP, P, T...>&& other) noexcept
+    {
+      *this = other;
+    }
+
+    template <typename P>
+    RowViewBase(RowViewBase<FilteredIndexPolicy, P, T...> other) requires std::is_same_v<IP, DefaultIndexPolicy>
     {
       *this = other;
     }
@@ -1449,7 +1491,7 @@ class Table
     auto getId() const
     {
       using decayed = std::decay_t<TI>;
-      if constexpr (framework::has_type_v<decayed, bindings_pack_t>) { // index to another table
+      if constexpr (framework::has_type<decayed>(bindings_pack_t{})) { // index to another table
         constexpr auto idx = framework::has_type_at_v<decayed>(bindings_pack_t{});
         return framework::pack_element_t<idx, external_index_columns_t>::getId();
       } else if constexpr (std::is_same_v<decayed, Parent>) { // self index
@@ -1521,7 +1563,7 @@ class Table
 
   Table(std::shared_ptr<arrow::Table> table, uint64_t offset = 0)
     : mTable(table),
-      mEnd{static_cast<uint64_t>(table->num_rows())},
+      mEnd{table->num_rows()},
       mOffset(offset)
   {
     if (mTable->num_rows() == 0) {
@@ -1550,7 +1592,7 @@ class Table
   template <typename Key>
   inline arrow::ChunkedArray* getIndexToKey()
   {
-    if constexpr (framework::has_type_conditional_v<is_binding_compatible, Key, external_index_columns_t>) {
+    if constexpr (framework::has_type_conditional<is_binding_compatible, Key>(external_index_columns_t{})) {
       using IC = framework::pack_element_t<framework::has_type_at_conditional<is_binding_compatible, Key>(external_index_columns_t{}), external_index_columns_t>;
       return mColumnChunks[framework::has_type_at<IC>(persistent_columns_t{})];
     } else if constexpr (std::is_same_v<table_t, Key>) {
@@ -1586,7 +1628,7 @@ class Table
     // is held by the table, so we are safe passing the bare pointer. If it does it
     // means that the iterator on a table is outliving the table itself, which is
     // a bad idea.
-    return filtered_iterator(mColumnChunks, {selection, mOffset});
+    return filtered_iterator(mColumnChunks, {selection, mTable->num_rows(), mOffset});
   }
 
   iterator iteratorAt(uint64_t i) const
@@ -1596,7 +1638,8 @@ class Table
 
   unfiltered_iterator rawIteratorAt(uint64_t i) const
   {
-    auto it = mBegin + i;
+    auto it = mBegin;
+    it.setCursor(i);
     return it;
   }
 
@@ -2738,7 +2781,8 @@ struct Join : TableWrap<Ts...>::table_t {
 
   iterator rawIteratorAt(uint64_t i) const
   {
-    auto it = iterator{this->cached_begin()} + i;
+    auto it = iterator{this->cached_begin()};
+    it.setCursor(i);
     return it;
   }
 
@@ -2758,12 +2802,12 @@ struct Join : TableWrap<Ts...>::table_t {
   }
 
   template <typename T>
-  static constexpr bool contains()
+  static consteval bool contains()
   {
     if constexpr (is_type_with_originals_v<T>) {
       return contains(typename T::originals{});
     } else {
-      return framework::has_type_v<T, originals>;
+      return framework::has_type<T>(originals{});
     }
   }
 
@@ -2826,6 +2870,7 @@ class FilteredBase : public T
   using external_index_columns_t = typename T::external_index_columns_t;
 
   using iterator = decltype([]<typename... Os>(framework::pack<Os...>) { return typename table_t::template RowViewFiltered<FilteredBase<T>, Os...>{}; }(originals{}));
+  using unfiltered_iterator = decltype([]<typename... Os>(framework::pack<Os...>) { return typename table_t::template RowView<FilteredBase<T>, Os...>{}; }(originals{}));
   using const_iterator = iterator;
 
   FilteredBase(std::vector<std::shared_ptr<arrow::Table>>&& tables, gandiva::Selection const& selection, uint64_t offset = 0)
@@ -2873,6 +2918,13 @@ class FilteredBase : public T
     return const_iterator(mFilteredBegin);
   }
 
+  unfiltered_iterator rawIteratorAt(uint64_t i) const
+  {
+    auto it = unfiltered_iterator{mFilteredBegin};
+    it.setCursor(i);
+    return it;
+  }
+
   [[nodiscard]] RowViewSentinel end() const
   {
     return RowViewSentinel{*mFilteredEnd};
@@ -2906,6 +2958,19 @@ class FilteredBase : public T
   auto const& getSelectedRows() const
   {
     return mSelectedRows;
+  }
+
+  auto rawSlice(uint64_t start, uint64_t end) const
+  {
+    SelectionVector newSelection;
+    newSelection.resize(static_cast<int64_t>(end - start + 1));
+    std::iota(newSelection.begin(), newSelection.end(), start);
+    return self_t{{this->asArrowTable()}, std::move(newSelection), 0};
+  }
+
+  auto emptySlice() const
+  {
+    return self_t{{this->asArrowTable()}, SelectionVector{}, 0};
   }
 
   static inline auto getSpan(gandiva::Selection const& sel)
@@ -3033,13 +3098,18 @@ class FilteredBase : public T
     resetRanges();
   }
 
+  bool isCached() const
+  {
+    return mCached;
+  }
+
  private:
   void resetRanges()
   {
     if (mCached) {
       mSelectedRows = gsl::span{mSelectedRowsCache};
     }
-    mFilteredEnd.reset(new RowViewSentinel{mSelectedRows.size()});
+    mFilteredEnd.reset(new RowViewSentinel{static_cast<int64_t>(mSelectedRows.size())});
     if (tableSize() == 0) {
       mFilteredBegin = *mFilteredEnd;
     } else {
@@ -3064,6 +3134,7 @@ class Filtered : public FilteredBase<T>
   using originals = originals_pack_t<T>;
 
   using iterator = decltype([]<typename... Os>(framework::pack<Os...>) { return typename table_t::template RowViewFiltered<Filtered<T>, Os...>{}; }(originals{}));
+  using unfiltered_iterator = decltype([]<typename... Os>(framework::pack<Os...>) { return typename table_t::template RowView<Filtered<T>, Os...>{}; }(originals{}));
   using const_iterator = iterator;
 
   iterator begin()
@@ -3157,6 +3228,28 @@ class Filtered : public FilteredBase<T>
     return operator*=(other.getSelectedRows());
   }
 
+  unfiltered_iterator rawIteratorAt(uint64_t i) const
+  {
+    auto it = unfiltered_iterator{this->cached_begin()};
+    it.setCursor(i);
+    return it;
+  }
+
+  using FilteredBase<T>::getSelectedRows;
+
+  auto rawSlice(uint64_t start, uint64_t end) const
+  {
+    SelectionVector newSelection;
+    newSelection.resize(static_cast<int64_t>(end - start + 1));
+    std::iota(newSelection.begin(), newSelection.end(), start);
+    return self_t{{this->asArrowTable()}, std::move(newSelection), 0};
+  }
+
+  auto emptySlice() const
+  {
+    return self_t{{this->asArrowTable()}, SelectionVector{}, 0};
+  }
+
   template <typename T1>
   auto rawSliceBy(o2::framework::Preslice<T1> const& container, int value) const
   {
@@ -3200,6 +3293,7 @@ class Filtered<Filtered<T>> : public FilteredBase<typename T::table_t>
   using table_t = typename FilteredBase<typename T::table_t>::table_t;
   using originals = originals_pack_t<T>;
   using iterator = decltype([]<typename... Os>(framework::pack<Os...>) { return typename table_t::template RowViewFiltered<Filtered<Filtered<T>>, Os...>{}; }(originals{}));
+  using unfiltered_iterator = decltype([]<typename... Os>(framework::pack<Os...>) { return typename table_t::template RowView<Filtered<Filtered<T>>, Os...>{}; }(originals{}));
   using const_iterator = iterator;
 
   iterator begin()
@@ -3306,6 +3400,26 @@ class Filtered<Filtered<T>> : public FilteredBase<typename T::table_t>
   Filtered<Filtered<T>> operator*=(Filtered<T> const& other)
   {
     return operator*=(other.getSelectedRows());
+  }
+
+  unfiltered_iterator rawIteratorAt(uint64_t i) const
+  {
+    auto it = unfiltered_iterator{this->cached_begin()};
+    it.setCursor(i);
+    return it;
+  }
+
+  auto rawSlice(uint64_t start, uint64_t end) const
+  {
+    SelectionVector newSelection;
+    newSelection.resize(static_cast<int64_t>(end - start + 1));
+    std::iota(newSelection.begin(), newSelection.end(), start);
+    return self_t{{this->asArrowTable()}, std::move(newSelection), 0};
+  }
+
+  auto emptySlice() const
+  {
+    return self_t{{this->asArrowTable()}, SelectionVector{}, 0};
   }
 
   auto sliceByCached(framework::expressions::BindingNode const& node, int value, o2::framework::SliceCache& cache) const

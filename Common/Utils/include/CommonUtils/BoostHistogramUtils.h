@@ -313,7 +313,7 @@ std::vector<double> fitGaus(Iterator first, Iterator last, BinCenterView axisfir
     if (nbins > 1) {
       // dont take bins with 0 entries or bins with nan into account
       // if y-value (*iter) is 1, log(*iter) will be 0. Exclude these cases
-      if (isnan(*axisiter) || isinf(*axisiter) || *iter <= 0 || *iter == 1) {
+      if (std::isnan(*axisiter) || std::isinf(*axisiter) || *iter <= 0 || *iter == 1) {
         continue;
       }
       double x = *axisiter;
@@ -712,6 +712,29 @@ auto ReduceBoostHistoFastSliceByValue(boost::histogram::histogram<axes...>& hist
   int binYHigh = hist2d.axis(1).index(yHigh);
 
   return ReduceBoostHistoFastSlice(hist2d, binXLow, binXHigh, binYLow, binYHigh, includeOverflowUnderflow);
+}
+
+/// \brief Function to integrate 1d boost histogram in specified range
+/// \param hist 1d boost histogram
+/// \param min lower integration range
+/// \param max upper integration range
+/// \return sum of bin contents in specified range
+template <typename... axes>
+double getIntegralBoostHist(boost::histogram::histogram<axes...>& hist, double min, double max)
+{
+  // find bins for min and max values
+  std::array<int, 2> axisLimitsIndex = {hist.axis(0).index(min), hist.axis(0).index(max)};
+  // over/underflow bin have to be protected
+  for (auto& bin : axisLimitsIndex) {
+    if (bin < 0) {
+      bin = 0;
+    } else if (bin >= hist.axis(0).size()) {
+      bin = hist.axis(0).size() - 1;
+    }
+  }
+  // Reduce histogram to desired range
+  auto slicedHist = ReduceBoostHistoFastSlice1D(hist, axisLimitsIndex[0], axisLimitsIndex[1], false);
+  return boost::histogram::algorithm::sum(slicedHist);
 }
 
 } // namespace utils

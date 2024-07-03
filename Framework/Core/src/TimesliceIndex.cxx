@@ -9,7 +9,10 @@
 // granted to it by virtue of its status as an Intergovernmental Organization
 // or submit itself to any jurisdiction.
 #include "Framework/TimesliceIndex.h"
-#include "Framework/Logger.h"
+#include "Framework/Signpost.h"
+#include <fairmq/Channel.h>
+
+O2_DECLARE_DYNAMIC_LOG(timeslice_index);
 
 namespace o2::framework
 {
@@ -33,6 +36,8 @@ void TimesliceIndex::associate(TimesliceId timestamp, TimesliceSlot slot)
   mVariables[slot.index].put({0, static_cast<uint64_t>(timestamp.value)});
   mVariables[slot.index].commit();
   mDirty[slot.index] = true;
+  O2_SIGNPOST_ID_GENERATE(tid, timeslice_index);
+  O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "associate", "Associating timestamp %zu to slot %zu", timestamp.value, slot.index);
 }
 
 TimesliceSlot TimesliceIndex::findOldestSlot(TimesliceId timestamp) const
@@ -63,13 +68,18 @@ TimesliceSlot TimesliceIndex::findOldestSlot(TimesliceId timestamp) const
 std::tuple<TimesliceIndex::ActionTaken, TimesliceSlot> TimesliceIndex::replaceLRUWith(data_matcher::VariableContext& newContext, TimesliceId timestamp)
 {
   auto oldestSlot = findOldestSlot(timestamp);
+  O2_SIGNPOST_ID_GENERATE(tid, timeslice_index);
   if (TimesliceIndex::isValid(oldestSlot) == false) {
     mVariables[oldestSlot.index] = newContext;
+    auto debugTimestamp = std::get_if<uint64_t>(&mVariables[oldestSlot.index].get(0));
+    O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "replaceLRUWith", "slot %zu timeslice %zu (%" PRIu64 ")", oldestSlot.index, timestamp.value, *debugTimestamp);
     return std::make_tuple(ActionTaken::ReplaceUnused, oldestSlot);
   }
   auto oldTimestamp = std::get_if<uint64_t>(&mVariables[oldestSlot.index].get(0));
   if (oldTimestamp == nullptr) {
     mVariables[oldestSlot.index] = newContext;
+    auto debugTimestamp = std::get_if<uint64_t>(&mVariables[oldestSlot.index].get(0));
+    O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "replaceLRUWith", "slot %zu timeslice %zu (%" PRIu64 ")", oldestSlot.index, timestamp.value, *debugTimestamp);
     return std::make_tuple(ActionTaken::ReplaceUnused, oldestSlot);
   }
 
@@ -80,9 +90,12 @@ std::tuple<TimesliceIndex::ActionTaken, TimesliceSlot> TimesliceIndex::replaceLR
 
   if (*newTimestamp > *oldTimestamp) {
     switch (mBackpressurePolicy) {
-      case BackpressureOp::DropAncient:
+      case BackpressureOp::DropAncient: {
         mVariables[oldestSlot.index] = newContext;
+        auto debugTimestamp = std::get_if<uint64_t>(&mVariables[oldestSlot.index].get(0));
+        O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "replaceLRUWith", "slot %zu timeslice %zu (%" PRIu64 ")", oldestSlot.index, timestamp.value, *debugTimestamp);
         return std::make_tuple(ActionTaken::ReplaceObsolete, oldestSlot);
+      }
       case BackpressureOp::DropRecent:
         return std::make_tuple(ActionTaken::DropObsolete, TimesliceSlot{TimesliceSlot::INVALID});
       case BackpressureOp::Wait:
@@ -90,9 +103,12 @@ std::tuple<TimesliceIndex::ActionTaken, TimesliceSlot> TimesliceIndex::replaceLR
     }
   } else {
     switch (mBackpressurePolicy) {
-      case BackpressureOp::DropRecent:
+      case BackpressureOp::DropRecent: {
         mVariables[oldestSlot.index] = newContext;
+        auto debugTimestamp = std::get_if<uint64_t>(&mVariables[oldestSlot.index].get(0));
+        O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "replaceLRUWith", "slot %zu timeslice %zu (%" PRIu64 ")", oldestSlot.index, timestamp.value, *debugTimestamp);
         return std::make_tuple(ActionTaken::ReplaceObsolete, oldestSlot);
+      }
       case BackpressureOp::DropAncient:
         return std::make_tuple(ActionTaken::DropObsolete, TimesliceSlot{TimesliceSlot::INVALID});
       case BackpressureOp::Wait:
@@ -124,9 +140,12 @@ bool TimesliceIndex::didReceiveData() const
 
 TimesliceIndex::OldestInputInfo TimesliceIndex::setOldestPossibleInput(TimesliceId timestamp, ChannelIndex channel)
 {
+  O2_SIGNPOST_ID_GENERATE(tid, timeslice_index);
   // Each channel oldest possible input must be monotoically increasing.
   if (timestamp.value < mChannels[channel.value].oldestForChannel.value) {
-    LOG(error) << "Received bogus oldest possible timeslice " << timestamp.value << " for channel " << channel.value << ". Expected >= " << mChannels[channel.value].oldestForChannel.value;
+    O2_SIGNPOST_EVENT_EMIT_ERROR(timeslice_index, tid, "setOldestPossibleInput",
+                                 "Received bogus oldest possible timeslice %zu for channel %d. Expected >= %zu.",
+                                 timestamp.value, channel.value, mChannels[channel.value].oldestForChannel.value);
   }
   mChannels[channel.value].oldestForChannel = timestamp;
   OldestInputInfo result{timestamp, channel};
@@ -144,11 +163,16 @@ TimesliceIndex::OldestInputInfo TimesliceIndex::setOldestPossibleInput(Timeslice
     }
   }
   if (changed && mOldestPossibleInput.timeslice.value != result.timeslice.value) {
-    LOG(debug) << "Success: Oldest possible input is " << result.timeslice.value << " due to channel " << result.channel.value;
+    O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "setOldestPossibleInput", "Success (channel %d): Oldest possible input is %zu due to channel %d",
+                           channel.value, result.timeslice.value, result.channel.value);
   } else if (mOldestPossibleInput.timeslice.value != result.timeslice.value) {
-    LOG(debug) << "Oldest possible input updated from timestamp: " << mOldestPossibleInput.timeslice.value << " --> " << result.timeslice.value;
+    O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "setOldestPossibleInput", "channel %d: Oldest possible input updated from timestamp: %zu --> %zu",
+                           channel.value, mOldestPossibleInput.timeslice.value, result.timeslice.value);
   } else {
-    LOG(debug) << "No change in oldest possible input";
+    O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "setOldestPossibleInput", "No change in oldest possible input");
+  }
+  if (mOldestPossibleInput.timeslice.value > result.timeslice.value) {
+    LOG(error) << "DPL internal error - oldestPossibleInput of channel " << channel.value << ": " << getChannelInfo(channel).channel->GetName().c_str() << " decreased from " << mOldestPossibleOutput.timeslice.value << " to " << result.timeslice.value;
   }
   mOldestPossibleInput = result;
   return mOldestPossibleInput;
@@ -168,7 +192,7 @@ bool TimesliceIndex::validateSlot(TimesliceSlot slot, TimesliceId currentOldest)
   return true;
 }
 
-TimesliceIndex::OldestOutputInfo TimesliceIndex::updateOldestPossibleOutput()
+TimesliceIndex::OldestOutputInfo TimesliceIndex::updateOldestPossibleOutput(bool rewinded)
 {
   auto oldestInput = getOldestPossibleInput();
   OldestOutputInfo result{oldestInput.timeslice, oldestInput.channel};
@@ -187,13 +211,20 @@ TimesliceIndex::OldestOutputInfo TimesliceIndex::updateOldestPossibleOutput()
       result.channel = {(int)-1};
     }
   }
-  if (changed && mOldestPossibleOutput.timeslice.value != result.timeslice.value) {
-    LOGP(debug, "Oldest possible output {} due to {} {}",
-         result.timeslice.value,
-         result.channel.value == -1 ? "slot" : "channel",
-         result.channel.value == -1 ? mOldestPossibleOutput.slot.index : mOldestPossibleOutput.channel.value);
-  } else if (mOldestPossibleOutput.timeslice.value != result.timeslice.value) {
-    LOG(debug) << "Oldest possible output updated from oldest Input : " << mOldestPossibleOutput.timeslice.value << " --> " << result.timeslice.value;
+  O2_SIGNPOST_ID_GENERATE(tid, timeslice_index);
+  if (mOldestPossibleOutput.timeslice.value != result.timeslice.value) {
+    if (changed) {
+      O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "updateOldestPossibleOutput", "Oldest possible output %zu (before %zu) due to %s %zu",
+                             result.timeslice.value, mOldestPossibleOutput.timeslice.value,
+                             result.channel.value == -1 ? "slot" : "channel",
+                             result.channel.value == -1 ? result.slot.index : result.channel.value);
+    } else {
+      O2_SIGNPOST_EVENT_EMIT(timeslice_index, tid, "updateOldestPossibleOutput", "Oldest possible output updated from oldest Input : %zu --> %zu",
+                             mOldestPossibleOutput.timeslice.value, result.timeslice.value);
+    }
+  }
+  if (rewinded == false && mOldestPossibleOutput.timeslice.value > result.timeslice.value) {
+    LOG(error) << "DPL internal error - oldestPossibleOutput decreased from " << mOldestPossibleOutput.timeslice.value << " to " << result.timeslice.value;
   }
   mOldestPossibleOutput = result;
 

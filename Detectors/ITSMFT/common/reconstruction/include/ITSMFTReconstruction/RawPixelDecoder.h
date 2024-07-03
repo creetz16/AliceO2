@@ -60,8 +60,8 @@ class RawPixelDecoder final : public PixelReader
   void collectROFCableData(int iru);
   int decodeNextTrigger() final;
 
-  template <class DigitContainer, class ROFContainer, class STATVEC>
-  int fillDecodedDigits(DigitContainer& digits, ROFContainer& rofs, STATVEC& chipStatus);
+  template <class DigitContainer, class ROFContainer>
+  int fillDecodedDigits(DigitContainer& digits, ROFContainer& rofs);
 
   template <class STATVEC>
   void fillChipsStatus(STATVEC& chipStatus);
@@ -107,6 +107,9 @@ class RawPixelDecoder final : public PixelReader
   void setAllowEmptyROFs(bool v) { mAlloEmptyROFs = v; }
   bool getAllowEmptyROFs() const { return mAlloEmptyROFs; }
 
+  void setVerifyDecoder(bool v) { mVerifyDecoder = v; }
+  bool getVerifyDecoder() const { return mVerifyDecoder; }
+
   void setInstanceID(size_t i) { mInstanceID = i; }
   void setNInstances(size_t n) { mNInstances = n; }
   auto getInstanceID() const { return mInstanceID; }
@@ -120,6 +123,7 @@ class RawPixelDecoder final : public PixelReader
 
   void setSkipRampUpData(bool v = true) { mSkipRampUpData = v; }
   bool getSkipRampUpData() const { return mSkipRampUpData; }
+  auto getNROFsProcessed() const { return mROFCounter; }
 
   struct LinkEntry {
     int entry = -1;
@@ -127,6 +131,7 @@ class RawPixelDecoder final : public PixelReader
 
   uint16_t getSquashingDepth() { return 0; }
   bool doIRMajorityPoll();
+  bool isRampUpStage() const { return mROFRampUpStage; }
   void reset();
 
  private:
@@ -158,6 +163,7 @@ class RawPixelDecoder final : public PixelReader
   bool mAlloEmptyROFs = false;                                                        // do not skip empty ROFs
   bool mROFRampUpStage = false;                                                       // are we still in the ROF ramp up stage?
   bool mSkipRampUpData = false;
+  bool mVerifyDecoder = false;
   int mVerbosity = 0;
   int mNThreads = 1; // number of decoding threads
   // statistics
@@ -178,8 +184,8 @@ class RawPixelDecoder final : public PixelReader
 ///______________________________________________________________
 /// Fill decoded digits to global vector
 template <class Mapping>
-template <class DigitContainer, class ROFContainer, class STATVEC>
-int RawPixelDecoder<Mapping>::fillDecodedDigits(DigitContainer& digits, ROFContainer& rofs, STATVEC& chipStatus)
+template <class DigitContainer, class ROFContainer>
+int RawPixelDecoder<Mapping>::fillDecodedDigits(DigitContainer& digits, ROFContainer& rofs)
 {
   if (mInteractionRecord.isDummy()) {
     return 0; // nothing was decoded
@@ -189,7 +195,6 @@ int RawPixelDecoder<Mapping>::fillDecodedDigits(DigitContainer& digits, ROFConta
   for (unsigned int iru = 0; iru < mRUDecodeVec.size(); iru++) {
     for (int ic = 0; ic < mRUDecodeVec[iru].nChipsFired; ic++) {
       const auto& chip = mRUDecodeVec[iru].chipsData[ic];
-      chipStatus[chip.getChipID()] = 1;
       for (const auto& hit : mRUDecodeVec[iru].chipsData[ic].getData()) {
         digits.emplace_back(chip.getChipID(), hit.getRow(), hit.getCol());
       }
@@ -204,8 +209,8 @@ int RawPixelDecoder<Mapping>::fillDecodedDigits(DigitContainer& digits, ROFConta
 ///______________________________________________________________
 /// Fill decoded digits to global vector
 template <>
-template <class DigitContainer, class ROFContainer, class STATVEC>
-int RawPixelDecoder<ChipMappingMFT>::fillDecodedDigits(DigitContainer& digits, ROFContainer& rofs, STATVEC& chipStatus)
+template <class DigitContainer, class ROFContainer>
+int RawPixelDecoder<ChipMappingMFT>::fillDecodedDigits(DigitContainer& digits, ROFContainer& rofs)
 {
   if (mInteractionRecord.isDummy()) {
     return 0; // nothing was decoded
@@ -215,7 +220,6 @@ int RawPixelDecoder<ChipMappingMFT>::fillDecodedDigits(DigitContainer& digits, R
   for (auto chipData = mOrderedChipsPtr.rbegin(); chipData != mOrderedChipsPtr.rend(); ++chipData) {
     assert(mLastReadChipID < (*chipData)->getChipID());
     mLastReadChipID = (*chipData)->getChipID();
-    chipStatus[mLastReadChipID] = 1;
     for (const auto& hit : (*chipData)->getData()) {
       digits.emplace_back(mLastReadChipID, hit.getRow(), hit.getCol());
     }
@@ -232,13 +236,12 @@ template <class Mapping>
 template <class STATVEC>
 void RawPixelDecoder<Mapping>::fillChipsStatus(STATVEC& chipStatus)
 {
-  if (mInteractionRecord.isDummy()) {
+  if (mInteractionRecord.isDummy() || mROFRampUpStage) {
     return; // nothing was decoded
   }
   for (unsigned int iru = 0; iru < mRUDecodeVec.size(); iru++) {
-    for (int ic = 0; ic < mRUDecodeVec[iru].nChipsFired; ic++) {
-      const auto& chip = mRUDecodeVec[iru].chipsData[ic];
-      chipStatus[chip.getChipID()] = 1;
+    for (auto chID : mRUDecodeVec[iru].seenChipIDs) {
+      chipStatus[chID] = 1;
     }
   }
 }

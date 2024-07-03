@@ -29,6 +29,7 @@
 #include "EMCALBase/Geometry.h"
 #include "CCDB/CcdbObjectInfo.h"
 #include "EMCALCalib/CalibDB.h"
+#include "DataFormatsParameters/GRPECSObject.h"
 
 #include "Framework/Logger.h"
 #include "CommonUtils/MemFileHelper.h"
@@ -100,12 +101,27 @@ class EMCALChannelCalibrator : public o2::calibration::TimeSlotCalibration<DataI
 
   bool setGainCalibrationFactors(o2::emcal::GainCalibrationFactors* gainCalibFactors);
 
+  /// \brief Set current fill number
+  /// \param fn fill number
+  void setFillNr(int fn) { mFillNr = fn; }
+
+  /// \brief Set current run type
+  /// \param rt tun type
+  void setRunType(o2::parameters::GRPECSObject::RunType rt) { mRunType = rt; }
+
+  /// \brief Set current timestamp obtained from data
+  /// \param ts timestamp in hours
+  void setCurrTSInHours(int ts) { mStartTSCalib = ts; }
+
  private:
-  int mNBins = 0;          ///< bins of the histogram for passing
-  float mRange = 0.;       ///< range of the histogram for passing
-  bool mTest = false;      ///< flag to be used when running in test mode: it simplify the processing (e.g. does not go through all channels)
-  bool mSaveAtEOR = false; ///< flag to pretend to have enough data in order to trigger the saving of the calib histograms for loading them at the next run
-  bool mLoadAtSOR = false; ///< flag weather to load the calibration histograms from the previous run at the SOR
+  int mNBins = 0;                                                                               ///< bins of the histogram for passing
+  float mRange = 0.;                                                                            ///< range of the histogram for passing
+  bool mTest = false;                                                                           ///< flag to be used when running in test mode: it simplify the processing (e.g. does not go through all channels)
+  bool mSaveAtEOR = false;                                                                      ///< flag to pretend to have enough data in order to trigger the saving of the calib histograms for loading them at the next run
+  bool mLoadAtSOR = false;                                                                      ///< flag weather to load the calibration histograms from the previous run at the SOR
+  o2::parameters::GRPECSObject::RunType mRunType = o2::parameters::GRPECSObject::RunType::NONE; ///< Run type needed if previous calibration is loaded.
+  int mFillNr = 0;                                                                              ///< fill nr. needed if previous calibration is loaded.
+  int mStartTSCalib = -1;                                                                       ///< First timestamp for calibration. Needed to check if calibration data from previous slot should be loaded
   std::shared_ptr<EMCALCalibExtractor> mCalibrator;
 
   // output
@@ -151,6 +167,11 @@ void EMCALChannelCalibrator<DataInput, DataOutput>::finalizeSlot(o2::calibration
   // Extract results for the single slot
   DataInput* c = slot.getContainer();
   LOG(info) << "Finalize slot " << slot.getTFStart() << " <= TF <= " << slot.getTFEnd();
+  // check if slot contains a minimum amount of data
+  if (c->getNEvents() < EMCALCalibParams::Instance().minNEventsSaveSlot) {
+    LOG(info) << "Slot only contains " << c->getNEvents() << " events. Not saving this slot. " << EMCALCalibParams::Instance().minNEventsSaveSlot << " required";
+    return;
+  }
 
   if constexpr (std::is_same<DataInput, o2::emcal::EMCALChannelData>::value) {
     if (c->getNEvents() < EMCALCalibParams::Instance().minNEvents_bc) {
@@ -166,6 +187,13 @@ void EMCALChannelCalibrator<DataInput, DataOutput>::finalizeSlot(o2::calibration
     }
   }
 
+  // get the start timestamp of the slot. Either use the manually set start ts if available, or just the start time of the slot.
+  long tsStart = slot.getStartTimeMS();
+  if (EMCALCalibParams::Instance().useStaticStartTimeSlot && slot.getStaticStartTimeMS() > 0) {
+    tsStart = slot.getStaticStartTimeMS();
+    LOG(info) << "Adjusting the start TS of the slot from " << slot.getStartTimeMS() << " to " << slot.getStaticStartTimeMS();
+  }
+
   std::map<std::string, std::string> md;
   if constexpr (std::is_same<DataInput, o2::emcal::EMCALChannelData>::value) {
     LOG(debug) << "Launching the calibration.";
@@ -174,7 +202,7 @@ void EMCALChannelCalibrator<DataInput, DataOutput>::finalizeSlot(o2::calibration
     // for the CCDB entry
     auto clName = o2::utils::MemFileHelper::getClassName(bcm);
     auto flName = o2::ccdb::CcdbApi::generateFileName(clName);
-    mInfoVector.emplace_back(CalibDB::getCDBPathBadChannelMap(), clName, flName, md, slot.getStartTimeMS(), slot.getEndTimeMS() + EMCALCalibParams::Instance().endTimeMargin, true);
+    mInfoVector.emplace_back(CalibDB::getCDBPathBadChannelMap(), clName, flName, md, tsStart, slot.getEndTimeMS() + EMCALCalibParams::Instance().endTimeMargin, true);
     mCalibObjectVector.push_back(bcm);
 
     if ((EMCALCalibParams::Instance().localRootFilePath).find(".root") != std::string::npos) {
@@ -184,15 +212,15 @@ void EMCALChannelCalibrator<DataInput, DataOutput>::finalizeSlot(o2::calibration
       fLocalStorage.cd();
 
       TH2F* histBCMap = (TH2F*)bcm.getHistogramRepresentation();
-      std::string nameBCHist = "BadChannels_" + std::to_string(slot.getStartTimeMS());
+      std::string nameBCHist = "BadChannels_" + std::to_string(tsStart);
       histBCMap->Write(nameBCHist.c_str(), TObject::kOverwrite);
 
       TH2F hCalibHist = o2::utils::TH2FFromBoost(c->getHisto());
-      std::string nameBCInputHist = "EnergyVsCellID_" + std::to_string(slot.getStartTimeMS());
+      std::string nameBCInputHist = "EnergyVsCellID_" + std::to_string(tsStart);
       hCalibHist.Write(nameBCInputHist.c_str(), TObject::kOverwrite);
 
       TH2F hCalibHistTime = o2::utils::TH2FFromBoost(c->getHistoTime());
-      std::string nameBCInputHistTime = "TimeVsCellID_" + std::to_string(slot.getStartTimeMS());
+      std::string nameBCInputHistTime = "TimeVsCellID_" + std::to_string(tsStart);
       hCalibHistTime.Write(nameBCInputHistTime.c_str(), TObject::kOverwrite);
 
       fLocalStorage.Close();
@@ -205,7 +233,7 @@ void EMCALChannelCalibrator<DataInput, DataOutput>::finalizeSlot(o2::calibration
     auto flName = o2::ccdb::CcdbApi::generateFileName(clName);
 
     // prepareCCDBobjectInfo
-    mInfoVector.emplace_back(CalibDB::getCDBPathTimeCalibrationParams(), clName, flName, md, slot.getStartTimeMS(), slot.getEndTimeMS() + EMCALCalibParams::Instance().endTimeMargin, true);
+    mInfoVector.emplace_back(CalibDB::getCDBPathTimeCalibrationParams(), clName, flName, md, tsStart, slot.getEndTimeMS() + EMCALCalibParams::Instance().endTimeMargin, true);
     mCalibObjectVector.push_back(tcd);
 
     if ((EMCALCalibParams::Instance().localRootFilePath).find(".root") != std::string::npos) {
@@ -214,15 +242,15 @@ void EMCALChannelCalibrator<DataInput, DataOutput>::finalizeSlot(o2::calibration
       TFile fLocalStorage((EMCALCalibParams::Instance().localRootFilePath).c_str(), ffile.good() == true ? "update" : "recreate");
       fLocalStorage.cd();
       TH1F* histTCparams = (TH1F*)tcd.getHistogramRepresentation(false); // high gain calibration
-      std::string nameTCHist = "TCParams_HG_" + std::to_string(slot.getStartTimeMS());
+      std::string nameTCHist = "TCParams_HG_" + std::to_string(tsStart);
       histTCparams->Write(nameTCHist.c_str(), TObject::kOverwrite);
 
       TH1F* histTCparams_LG = (TH1F*)tcd.getHistogramRepresentation(true); // low gain calibration
-      std::string nameTCHist_LG = "TCParams_LG_" + std::to_string(slot.getStartTimeMS());
+      std::string nameTCHist_LG = "TCParams_LG_" + std::to_string(tsStart);
       histTCparams_LG->Write(nameTCHist_LG.c_str(), TObject::kOverwrite);
 
       TH2F hCalibHist = o2::utils::TH2FFromBoost(c->getHisto());
-      std::string nameTCInputHist = "TimeVsCellID_" + std::to_string(slot.getStartTimeMS());
+      std::string nameTCInputHist = "TimeVsCellID_" + std::to_string(tsStart);
       hCalibHist.Write(nameTCInputHist.c_str(), TObject::kOverwrite);
       fLocalStorage.Close();
     }
@@ -244,10 +272,30 @@ template <typename DataInput, typename DataOutput>
 bool EMCALChannelCalibrator<DataInput, DataOutput>::saveLastSlotData(TFile& fl)
 {
   LOG(info) << "EMC calib histos are saved in " << fl.GetName();
-  // does this work?
+  // we only have 1 slot
   auto& cont = o2::calibration::TimeSlotCalibration<DataInput>::getSlots();
   auto& slot = cont.at(0);
   DataInput* c = slot.getContainer();
+
+  // get the start timestamp of the slot. Either use the manually set start ts if available, or just the start time of the slot.
+  long tsStart = slot.getStartTimeMS();
+  if (EMCALCalibParams::Instance().useStaticStartTimeSlot && slot.getStaticStartTimeMS() > 0) {
+    tsStart = slot.getStaticStartTimeMS();
+  }
+  // timestamp in hours and seconds
+  int timeNowHour = static_cast<int>(tsStart / o2::ccdb::CcdbObjectInfo::HOUR);
+  int timeNowSec = static_cast<int>(tsStart / o2::ccdb::CcdbObjectInfo::SECOND);
+
+  // create global event properties histogram. Same for both calibration types
+  TH1I hGlobalProperties("hGlobalProperties", "hGlobalProperties", 4, -0.5, 3.5);
+  hGlobalProperties.GetXaxis()->SetBinLabel(1, "Fill nr.");
+  hGlobalProperties.GetXaxis()->SetBinLabel(2, "run type");
+  hGlobalProperties.GetXaxis()->SetBinLabel(3, "ts in hours");
+  hGlobalProperties.GetXaxis()->SetBinLabel(4, "ts in seconds");
+  hGlobalProperties.SetBinContent(1, mFillNr);
+  hGlobalProperties.SetBinContent(2, mRunType);
+  hGlobalProperties.SetBinContent(3, timeNowHour);
+  hGlobalProperties.SetBinContent(4, timeNowSec);
 
   if constexpr (std::is_same<DataInput, o2::emcal::EMCALChannelData>::value) {
     auto hist = c->getHisto();
@@ -262,6 +310,8 @@ bool EMCALChannelCalibrator<DataInput, DataOutput>::saveLastSlotData(TFile& fl)
     hEnergy.Write("EnergyVsCellID");
     hTime.Write("TimeVsCellID");
     hNEvents.Write("NEvents");
+    hGlobalProperties.Write("GlobalProperties");
+
   } else if constexpr (std::is_same<DataInput, o2::emcal::EMCALTimeCalibData>::value) {
     auto histTime = c->getHisto();
     TH2F hTime = o2::utils::TH2FFromBoost(histTime);
@@ -271,6 +321,7 @@ bool EMCALChannelCalibrator<DataInput, DataOutput>::saveLastSlotData(TFile& fl)
     fl.cd();
     hTime.Write("TimeVsCellID");
     hNEvents.Write("NEvents");
+    hGlobalProperties.Write("GlobalProperties");
   }
 
   return true;
@@ -295,6 +346,36 @@ bool EMCALChannelCalibrator<DataInput, DataOutput>::adoptSavedData(const o2::cal
   }
   auto& slot = cont.at(0);
   DataInput* c = slot.getContainer();
+
+  // check run type and fill
+  TH1I* hGlobalProperties = (TH1I*)fl.Get("GlobalProperties");
+  if (!hGlobalProperties) {
+    LOG(error) << "GlobalProperties histogram not found. Will not load previous calibration histograms";
+  } else {
+    int fillNr = hGlobalProperties->GetBinContent(1);
+    int runType = hGlobalProperties->GetBinContent(2);
+    int tsOld = hGlobalProperties->GetBinContent(3);
+    int tsOldSec = (hGlobalProperties->GetNbinsX() > 3) ? hGlobalProperties->GetBinContent(4) : 0;                                                 // Protection as 4th bin was only added later
+    int tsDiff = (mStartTSCalib > 0 ? mStartTSCalib : static_cast<int>(o2::ccdb::getCurrentTimestamp() / o2::ccdb::CcdbObjectInfo::HOUR)) - tsOld; // get current timestamp if mStartTSCalib is not set
+    LOG(debug) << "tsOld " << tsOld << "   tsNow " << (mStartTSCalib > 0 ? mStartTSCalib : static_cast<int>(o2::ccdb::getCurrentTimestamp() / o2::ccdb::CcdbObjectInfo::HOUR)) << "   tsDiff " << tsDiff;
+
+    if (EMCALCalibParams::Instance().requireSameRunType && runType != static_cast<int>(mRunType)) {
+      LOG(info) << "adoptSavedData: Same run type required but run types differ: " << runType << " != " << static_cast<int>(mRunType);
+      return false;
+    }
+    if (EMCALCalibParams::Instance().requireSameFill && fillNr != mFillNr) {
+      LOG(info) << "adoptSavedData: Same fill nr. required but fills differ: " << fillNr << " != " << mFillNr;
+      return false;
+    }
+    if (EMCALCalibParams::Instance().tsDiffMax > 0 && (EMCALCalibParams::Instance().tsDiffMax < tsDiff || tsDiff < 0)) {
+      LOG(info) << "adoptSavedData: Maximum difference in ts is: " << EMCALCalibParams::Instance().tsDiffMax << " but " << tsDiff << " is given";
+      return false;
+    }
+    if (EMCALCalibParams::Instance().useStaticStartTimeSlot && tsOldSec > 0) {
+      slot.setStaticStartTimeMS(static_cast<long>(tsOldSec * o2::ccdb::CcdbObjectInfo::SECOND));
+      LOG(info) << "adoptSavedData: Setting the start timestamp to " << static_cast<long>(tsOldSec * o2::ccdb::CcdbObjectInfo::SECOND);
+    }
+  }
 
   if constexpr (std::is_same<DataInput, o2::emcal::EMCALChannelData>::value) {
     TH2D* hEnergy = (TH2D*)fl.Get("EnergyVsCellID");

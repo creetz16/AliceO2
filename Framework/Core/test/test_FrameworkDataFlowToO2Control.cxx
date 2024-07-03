@@ -49,6 +49,7 @@ WorkflowSpec defineDataProcessing()
            .options = {ConfigParamSpec{"a-param", VariantType::Int, 1, {"A parameter which should not be escaped"}},
                        ConfigParamSpec{"b-param", VariantType::String, "", {"a parameter which will be escaped"}},
                        ConfigParamSpec{"c-param", VariantType::String, "foo;bar", {"another parameter which will be escaped"}},
+                       ConfigParamSpec{"d-param", VariantType::String, R"(["foo","bar"])", {"a parameter with double quotes"}},
                        ConfigParamSpec{"channel-config", VariantType::String, // raw output channel
                                        "name=outta_dpl,type=push,method=bind,address=ipc:///tmp/pipe-outta-dpl,transport=shmem,rateLogging=10",
                                        {"Out-of-band channel config"}}},
@@ -211,6 +212,8 @@ command:
     - "'info'"
     - "--shm-allocation"
     - "'rbtree_best_fit'"
+    - "--shm-metadata-msg-size"
+    - "'0'"
     - "--shm-mlock-segment"
     - "'false'"
     - "--shm-mlock-segment-on-creation"
@@ -221,6 +224,8 @@ command:
     - "'0'"
     - "--shm-zero-segment"
     - "'false'"
+    - "--signposts"
+    - "''"
     - "--stacktrace-on-signal"
     - "'simple'"
     - "--timeframes-rate-limit"
@@ -304,6 +309,8 @@ command:
     - "'info'"
     - "--shm-allocation"
     - "'rbtree_best_fit'"
+    - "--shm-metadata-msg-size"
+    - "'0'"
     - "--shm-mlock-segment"
     - "'false'"
     - "--shm-mlock-segment-on-creation"
@@ -314,6 +321,8 @@ command:
     - "'0'"
     - "--shm-zero-segment"
     - "'false'"
+    - "--signposts"
+    - "''"
     - "--stacktrace-on-signal"
     - "'simple'"
     - "--timeframes-rate-limit"
@@ -397,6 +406,8 @@ command:
     - "'info'"
     - "--shm-allocation"
     - "'rbtree_best_fit'"
+    - "--shm-metadata-msg-size"
+    - "'0'"
     - "--shm-mlock-segment"
     - "'false'"
     - "--shm-mlock-segment-on-creation"
@@ -407,6 +418,8 @@ command:
     - "'0'"
     - "--shm-zero-segment"
     - "'false'"
+    - "--signposts"
+    - "''"
     - "--stacktrace-on-signal"
     - "'simple'"
     - "--timeframes-rate-limit"
@@ -487,6 +500,8 @@ command:
     - "'info'"
     - "--shm-allocation"
     - "'rbtree_best_fit'"
+    - "--shm-metadata-msg-size"
+    - "'0'"
     - "--shm-mlock-segment"
     - "'false'"
     - "--shm-mlock-segment-on-creation"
@@ -497,6 +512,8 @@ command:
     - "'0'"
     - "--shm-zero-segment"
     - "'false'"
+    - "--signposts"
+    - "''"
     - "--stacktrace-on-signal"
     - "'simple'"
     - "--timeframes-rate-limit"
@@ -507,6 +524,8 @@ command:
     - "''"
     - "--c-param"
     - "'foo;bar'"
+    - "--d-param"
+    - "'[\"foo\",\"bar\"]'"
 )EXPECTED"};
 
 TEST_CASE("TestO2ControlDump")
@@ -544,7 +563,7 @@ TEST_CASE("TestO2ControlDump")
   DeviceSpecHelpers::prepareArguments(false, false, false, 8080,
                                       driverConfig,
                                       dataProcessorInfos,
-                                      devices, executions, controls,
+                                      devices, executions, controls, {},
                                       "workflow-id");
 
   dumpWorkflow(ss, devices, executions, commandInfo, "testwf", "");

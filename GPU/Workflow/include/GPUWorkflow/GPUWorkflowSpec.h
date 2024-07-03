@@ -58,9 +58,8 @@ class GeometryFlat;
 
 namespace its
 {
-class Tracker;
-class Vertexer;
 class TimeFrame;
+class ITSTrackingInterface;
 } // namespace its
 
 namespace itsmft
@@ -128,7 +127,6 @@ class GPURecoWorkflowSpec : public o2::framework::Task
     int lumiScaleType = 0; // 0=off, 1=CTP, 2=TPC scalers
     bool outputErrorQA = false;
     bool runITSTracking = false;
-    int itsTrackingMode = 0; // 0=sync, 1=async, 2=cosmics
     bool itsOverrBeamEst = false;
     bool tpcTriggerHandling = false;
   };
@@ -138,8 +136,8 @@ class GPURecoWorkflowSpec : public o2::framework::Task
   void init(o2::framework::InitContext& ic) final;
   void run(o2::framework::ProcessingContext& pc) final;
   void endOfStream(o2::framework::EndOfStreamContext& ec) final;
-  void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj) final;
   void stop() final;
+  void finaliseCCDB(o2::framework::ConcreteDataMatcher& matcher, void* obj) final;
   o2::framework::Inputs inputs();
   o2::framework::Outputs outputs();
   o2::framework::Options options();
@@ -184,6 +182,7 @@ class GPURecoWorkflowSpec : public o2::framework::Task
   void RunWorkerThread(int id);
   void ExitPipeline();
   void handlePipelineEndOfStream(o2::framework::EndOfStreamContext& ec);
+  void handlePipelineStop();
   void initPipeline(o2::framework::InitContext& ic);
   void enqueuePipelinedJob(GPUTrackingInOutPointers* ptrs, GPUInterfaceOutputs* outputRegions, gpurecoworkflow_internals::GPURecoWorkflow_QueueObject* context, bool inputFinal);
   void finalizeInputPipelinedJob(GPUTrackingInOutPointers* ptrs, GPUInterfaceOutputs* outputRegions, gpurecoworkflow_internals::GPURecoWorkflow_QueueObject* context);
@@ -210,8 +209,7 @@ class GPURecoWorkflowSpec : public o2::framework::Task
   std::unique_ptr<GPUO2InterfaceQA> mQA;
   std::vector<int> mClusterOutputIds;
   std::vector<int> mTPCSectors;
-  std::unique_ptr<o2::its::Tracker> mITSTracker;
-  std::unique_ptr<o2::its::Vertexer> mITSVertexer;
+  std::unique_ptr<o2::its::ITSTrackingInterface> mITSTrackingInterface;
   std::unique_ptr<gpurecoworkflow_internals::GPURecoWorkflowSpec_PipelineInternals> mPipeline;
   o2::its::TimeFrame* mITSTimeFrame = nullptr;
   std::vector<fair::mq::RegionInfo> mRegionInfos;
@@ -234,8 +232,6 @@ class GPURecoWorkflowSpec : public o2::framework::Task
   bool mITSGeometryCreated = false;
   bool mTRDGeometryCreated = false;
   bool mPropagatorInstanceCreated = false;
-  bool mITSRunVertexer = false;
-  bool mITSCosmicsProcessing = false;
 };
 
 } // end namespace gpu

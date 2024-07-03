@@ -95,7 +95,11 @@ class SimTraits
       /*IT3*/ VS{ "IT3Hit" },
       /*TRK*/ VS{ "TRKHit" },
       /*FT3*/ VS{ "FT3Hit" },
-      /*FCT*/ VS{ "FCTHit" }
+      /*FCT*/ VS{ "FCTHit" },
+      /*TF3*/ VS{ "TF3Hit" },
+      /*RCH*/ VS{ "RCHHit" },
+      /*MI3*/ VS{ "MI3Hit" },
+      /*ECL*/ VS{ "ECLHit" }
 #endif
     };
   // clang-format on
@@ -163,7 +167,10 @@ namespace tpc
 {
 class HitGroup;
 }
-
+namespace focal
+{
+class Hit;
+}
 namespace detectors
 {
 
@@ -226,6 +233,10 @@ struct DetIDToHitTypes<o2::detectors::DetID::HMP> {
 template <>
 struct DetIDToHitTypes<o2::detectors::DetID::TPC> {
   using HitType = o2::tpc::HitGroup;
+};
+template <>
+struct DetIDToHitTypes<o2::detectors::DetID::FOC> {
+  using HitType = o2::focal::Hit;
 };
 #ifdef ENABLE_UPGRADES
 template <>

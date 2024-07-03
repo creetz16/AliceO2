@@ -102,9 +102,8 @@ struct GPUTPCGMO2OutputSort_comp {
 };
 
 template <>
-void GPUCA_KRNL_BACKEND_CLASS::runKernelBackendInternal<GPUTPCGMO2Output, GPUTPCGMO2Output::sort>(krnlSetup& _xyz)
+inline void GPUCA_KRNL_BACKEND_CLASS::runKernelBackendInternal<GPUTPCGMO2Output, GPUTPCGMO2Output::sort>(const krnlSetupTime& _xyz)
 {
-  GPUDebugTiming timer(mProcessingSettings.debugLevel, nullptr, mInternals->Streams, _xyz, this);
   thrust::device_ptr<GPUTPCGMMerger::tmpSort> trackSort(mProcessorsShadow->tpcMerger.TrackSortO2());
   ThrustVolatileAsyncAllocator alloc(this);
   thrust::sort(GPUCA_THRUST_NAMESPACE::par(alloc).on(mInternals->Streams[_xyz.x.stream]), trackSort, trackSort + processors()->tpcMerger.NOutputTracksTPCO2(), GPUTPCGMO2OutputSort_comp());
@@ -235,20 +234,21 @@ GPUdii() void GPUTPCGMO2Output::Thread<GPUTPCGMO2Output::output>(int nBlocks, in
         // estimate max/min time increments which still keep track in the physical limits of the TPC
         const float tmin = CAMath::Min(t1, t2);
         const float maxDriftTime = merger.GetConstantMem()->calibObjects.fastTransformHelper->getCorrMap()->getMaxDriftTime(t1 > t2 ? sector1 : sector2);
+        const float clusterT0 = merger.GetConstantMem()->calibObjects.fastTransformHelper->getCorrMap()->getT0();
         const float tmax = CAMath::Min(tmin + maxDriftTime, CAMath::Max(t1, t2));
         float delta = 0.f;
         if (time0 + maxDriftTime < tmax) {
           delta = tmax - time0 - maxDriftTime;
         }
-        if (tmin < time0 + delta) {
-          delta = tmin - time0;
+        if (tmin - clusterT0 < time0 + delta) {
+          delta = tmin - clusterT0 - time0;
         }
         if (delta != 0.f) {
           time0 += delta;
           const float deltaZ = merger.GetConstantMem()->calibObjects.fastTransformHelper->getCorrMap()->convDeltaTimeToDeltaZinTimeFrame(sector2, delta);
           oTrack.setZ(oTrack.getZ() + deltaZ);
         }
-        tFwd = tmin - time0;
+        tFwd = tmin - clusterT0 - time0;
         tBwd = time0 - tmax + maxDriftTime;
       }
     }

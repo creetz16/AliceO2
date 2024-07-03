@@ -216,6 +216,10 @@ class TrackParametrization
   GPUd() value_t getYAt(value_t xk, value_t b) const;
   GPUd() value_t getSnpAt(value_t xk, value_t b) const;
   GPUd() value_t getSnpAt(value_t alpha, value_t xk, value_t b) const;
+  GPUd() value_t getPhiAt(value_t xk, value_t b) const;
+  GPUd() value_t getPhiPosAt(value_t xk, value_t b) const;
+  GPUd() value_t getDCAYtoMV(value_t b, value_t xmv = 0.f, value_t ymv = 0.f, value_t zmv = 0.f) const;
+  GPUd() value_t getDCAZtoMV(value_t b, value_t xmv = 0.f, value_t ymv = 0.f, value_t zmv = 0.f) const;
   GPUd() math_utils::Point3D<value_t> getXYZGloAt(value_t xk, value_t b, bool& ok) const;
 
   // parameters manipulation
@@ -239,8 +243,10 @@ class TrackParametrization
   GPUhd() void setUserField(uint16_t v);
 
   GPUd() void printParam() const;
+  GPUd() void printParamHexadecimal();
 #ifndef GPUCA_ALIGPUCODE
   std::string asString() const;
+  std::string asStringHexadecimal();
 #endif
 
   GPUd() void updateParam(value_t delta, int i);
@@ -641,7 +647,7 @@ GPUdi() auto TrackParametrization<value_T>::getXYZGlo() const -> math_utils::Poi
 #else // mockup on GPU without ROOT
   float sina, cosa;
   gpu::CAMath::SinCos(getAlpha(), sina, cosa);
-  return math_utils::Point3D<value_t>(cosa * getX() + sina * getY(), cosa * getY() - sina * getX(), getZ());
+  return math_utils::Point3D<value_t>(cosa * getX() - sina * getY(), cosa * getY() + sina * getX(), getZ());
 #endif
 }
 
@@ -671,7 +677,7 @@ GPUdi() auto TrackParametrization<value_T>::getXYZGloAt(value_t xk, value_t b, b
 #else // mockup on GPU without ROOT
     float sina, cosa;
     gpu::CAMath::SinCos(getAlpha(), sina, cosa);
-    return math_utils::Point3D<value_t>(cosa * xk + sina * y, cosa * y - sina * xk, z);
+    return math_utils::Point3D<value_t>(cosa * xk - sina * y, cosa * y + sina * xk, z);
 #endif
   } else {
     return math_utils::Point3D<value_t>();

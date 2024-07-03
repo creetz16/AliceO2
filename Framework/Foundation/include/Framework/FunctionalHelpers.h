@@ -12,6 +12,7 @@
 #define O2_FRAMEWORK_FUNCTIONALHELPERS_H_
 
 #include "Framework/Pack.h"
+#include <algorithm>
 #include <functional>
 
 namespace o2::framework
@@ -24,6 +25,16 @@ struct memfun_type {
   using type = void;
 };
 } // namespace
+
+template <size_t N>
+struct StringLiteral {
+  constexpr StringLiteral(const char (&str)[N])
+  {
+    std::copy_n(str, N, value);
+  }
+
+  char value[N];
+};
 
 /// Type helper to hold metadata about a lambda or a class
 /// method.

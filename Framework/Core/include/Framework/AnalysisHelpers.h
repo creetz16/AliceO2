@@ -14,7 +14,7 @@
 #include "Framework/DataAllocator.h"
 #include "Framework/Traits.h"
 #include "Framework/TableBuilder.h"
-#include "Framework/AnalysisDataModel.h"
+#include "Framework/ASoA.h"
 #include "Framework/OutputSpec.h"
 #include "Framework/OutputRef.h"
 #include "Framework/InputSpec.h"
@@ -90,7 +90,7 @@ struct WritingCursor<soa::Table<PC...>> {
     if constexpr (soa::is_soa_iterator_v<T>) {
       return arg.globalIndex();
     } else {
-      static_assert(!framework::has_type_v<T, framework::pack<PC...>>, "Argument type mismatch");
+      static_assert(!framework::has_type<T>(framework::pack<PC...>{}), "Argument type mismatch");
       return arg;
     }
   }
@@ -129,6 +129,17 @@ struct Produces : WritingCursor<typename soa::PackToTable<typename T::table_t::p
 
 template <template <typename...> class T, typename... C>
 struct Produces<T<C...>> : WritingCursor<typename soa::PackToTable<typename T<C...>::table_t::persistent_columns_t>::table> {
+};
+
+/// Use this to group together produces. Useful to separate them logically
+/// or simply to stay within the 100 elements per Task limit.
+/// Use as:
+///
+/// struct MySetOfProduces : ProducesGroup {
+/// } products;
+///
+/// Notice the label MySetOfProduces is just a mnemonic and can be omitted.
+struct ProducesGroup {
 };
 
 /// Helper template for table transformations
@@ -422,7 +433,7 @@ struct OutputObj {
   OutputSpec const spec()
   {
     header::DataDescription desc{};
-    auto lhash = compile_time_hash(label.c_str());
+    auto lhash = runtime_hash(label.c_str());
     std::memset(desc.str, '_', 16);
     std::stringstream s;
     s << std::hex << lhash;
@@ -482,6 +493,8 @@ auto getTableFromFilter(const T& table, soa::SelectionVector&& selection)
   }
 }
 
+void initializePartitionCaches(std::set<uint32_t> const& hashes, std::shared_ptr<arrow::Schema> const& schema, expressions::Filter const& filter, gandiva::NodePtr& tree, gandiva::FilterPtr& gfilter);
+
 template <typename T>
 struct Partition {
   Partition(expressions::Node&& filter_) : filter{std::forward<expressions::Node>(filter_)}
@@ -494,29 +507,14 @@ struct Partition {
     setTable(table);
   }
 
-  void intializeCaches(std::shared_ptr<arrow::Schema> const& schema)
+  void intializeCaches(std::set<uint32_t> const& hashes, std::shared_ptr<arrow::Schema> const& schema)
   {
-    if (tree == nullptr) {
-      expressions::Operations ops = createOperations(filter);
-      if (isSchemaCompatible(schema, ops)) {
-        tree = createExpressionTree(ops, schema);
-      } else {
-        throw std::runtime_error("Partition filter does not match declared table type");
-      }
-    }
-    if (gfilter == nullptr) {
-      gfilter = framework::expressions::createFilter(schema, framework::expressions::makeCondition(tree));
-    }
+    initializePartitionCaches(hashes, schema, filter, tree, gfilter);
   }
 
-  void inline bindTable(T const& table)
+  void bindTable(T const& table)
   {
-    setTable(table);
-  }
-
-  void setTable(T const& table)
-  {
-    intializeCaches(table.asArrowTable()->schema());
+    intializeCaches(T::table_t::hashes(), table.asArrowTable()->schema());
     if (dataframeChanged) {
       mFiltered = getTableFromFilter(table, soa::selectionToVector(framework::expressions::createSelection(table.asArrowTable(), gfilter)));
       dataframeChanged = false;

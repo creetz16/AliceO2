@@ -38,10 +38,6 @@ class O2DatabasePDG
     auto db = TDatabasePDG::Instance();
     if (!initialized) {
       addALICEParticles(db);
-      if (const char* o2Root = std::getenv("O2_ROOT")) {
-        auto inputExtraPDGs = std::string(o2Root) + "/share/Detectors/gconfig/data/extra_ions_pdg_table.dat";
-        db->ReadPDGTable(inputExtraPDGs.c_str());
-      }
       initialized = true;
     }
     return db;
@@ -49,6 +45,7 @@ class O2DatabasePDG
 
   // adds ALICE particles to a given TDatabasePDG instance
   static void addALICEParticles(TDatabasePDG* db = TDatabasePDG::Instance());
+  static void addParticlesFromExternalFile(TDatabasePDG* db);
 
   // get particle's (if any) mass
   static Double_t MassImpl(TParticlePDG* particle, bool& success)
@@ -470,6 +467,43 @@ inline void O2DatabasePDG::addALICEParticles(TDatabasePDG* db)
                     0.185, 0, "Resonance", ionCode);
   }
 
+  // Lambda(1520)0
+  ionCode = 102134;
+  if (!db->GetParticle(ionCode)) {
+    db->AddParticle("Lambda_1520_0", "Lambda_1520_0", 1.5195, kFALSE, 0.0156, 0, "Resonance", ionCode);
+  }
+  if (!db->GetParticle(-ionCode)) {
+    db->AddParticle("AntiLambda_1520_0", "AntiLambda_1520_0", 1.5195, kFALSE, 0.0156, 0, "Resonance", -ionCode);
+  }
+
+  // f1 study
+  ionCode = 20223;
+  if (!db->GetParticle(ionCode)) {
+    db->AddParticle("f1_1285", "f1_1285", 1.28210, kFALSE, 0.02420, 0, "Resonance", ionCode);
+  }
+  ionCode = 20333;
+  if (!db->GetParticle(ionCode)) {
+    db->AddParticle("f1_1420", "f1_1420", 1.42640, kFALSE, 0.05490, 0, "Resonance", ionCode);
+  }
+
+  // glueball hunting
+  ionCode = 10221;
+  if (!db->GetParticle(ionCode)) {
+    db->AddParticle("f0_1370", "f0_1370", 1.37, kFALSE, 0.200, 0, "Resonance", ionCode);
+  }
+  ionCode = 9030221;
+  if (!db->GetParticle(ionCode)) {
+    db->AddParticle("f0_1500", "f0_1500", 1.500, kFALSE, 0.112, 0, "Resonance", ionCode);
+  }
+  ionCode = 10331;
+  if (!db->GetParticle(ionCode)) {
+    db->AddParticle("f0_1710", "f0_1710", 1.710, kFALSE, 0.139, 0, "Resonance", ionCode);
+  }
+  ionCode = 335;
+  if (!db->GetParticle(ionCode)) {
+    db->AddParticle("f2_1525", "f2_1525", 1.525, kFALSE, 0.073, 0, "Resonance", ionCode);
+  }
+
   // Xi-/+ (1820)
   ionCode = 123314;
   if (!db->GetParticle(ionCode)) {
@@ -617,6 +651,26 @@ inline void O2DatabasePDG::addALICEParticles(TDatabasePDG* db)
 
   if (!db->GetParticle(-ionCode)) {
     db->AddParticle("AntiSexaquark", "AntiSexaquark", 2.0, kTRUE, 0.0, 0, "Special", -ionCode);
+  }
+
+  // lastly, add particle from the the extra text file
+  addParticlesFromExternalFile(db);
+}
+
+inline void O2DatabasePDG::addParticlesFromExternalFile(TDatabasePDG* db)
+{
+  static bool initialized = false;
+  if (!initialized) {
+    // allow user to specify custom file
+    if (const char* custom = std::getenv("O2_SIM_CUSTOM_PDG")) {
+      // TODO: make sure this is a file
+      db->ReadPDGTable(custom);
+    } else if (const char* o2Root = std::getenv("O2_ROOT")) {
+      // take the maintained file from O2
+      auto inputExtraPDGs = std::string(o2Root) + "/share/Detectors/gconfig/data/extra_ions_pdg_table.dat";
+      db->ReadPDGTable(inputExtraPDGs.c_str());
+    }
+    initialized = true;
   }
 }
 

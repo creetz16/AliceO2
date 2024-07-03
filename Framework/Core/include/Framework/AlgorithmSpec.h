@@ -83,17 +83,6 @@ struct AlgorithmSpec {
 struct AlgorithmPlugin {
   virtual AlgorithmSpec create() = 0;
 };
-
-template <size_t N>
-struct StringLiteral {
-  constexpr StringLiteral(const char (&str)[N])
-  {
-    std::copy_n(str, N, value);
-  }
-
-  char value[N];
-};
-
 // Allow fetching inputs from the context using a string literal.
 template <StringLiteral lit, typename T>
 struct Input {
@@ -159,6 +148,14 @@ struct ContextElementTraits<DataAllocator> {
 template <>
 struct ContextElementTraits<ProcessingContext> {
   static ProcessingContext& get(ProcessingContext& ctx)
+  {
+    return ctx;
+  }
+};
+
+template <>
+struct ContextElementTraits<InitContext> {
+  static InitContext& get(InitContext& ctx)
   {
     return ctx;
   }

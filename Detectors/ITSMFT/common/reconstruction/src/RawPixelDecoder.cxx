@@ -95,6 +95,8 @@ int RawPixelDecoder<Mapping>::decodeNextTrigger()
       collectROFCableData(iru);
     }
 
+    mROFCounter++;
+
     if (!doIRMajorityPoll()) {
       continue; // no links with data
     }
@@ -107,14 +109,15 @@ int RawPixelDecoder<Mapping>::decodeNextTrigger()
       auto& ru = mRUDecodeVec[iru];
       if (ru.nNonEmptyLinks) {
         ru.ROFRampUpStage = mROFRampUpStage;
-        mNPixelsFiredROF += ru.decodeROF(mMAP, mInteractionRecord);
+        mNPixelsFiredROF += ru.decodeROF(mMAP, mInteractionRecord, mVerifyDecoder);
         mNChipsFiredROF += ru.nChipsFired;
+      } else {
+        ru.clearSeenChipIDs();
       }
     }
 
     if (mNChipsFiredROF || (mAlloEmptyROFs && mNLinksDone < mNLinksInTF)) { // fill some statistics
       mTrigger = mLinkForTriggers ? mLinkForTriggers->trigger : 0;
-      mROFCounter++;
       mNChipsFired += mNChipsFiredROF;
       mNPixelsFired += mNPixelsFiredROF;
       mCurRUDecodeID = 0; // getNextChipData will start from here

@@ -67,6 +67,7 @@ struct ChipStat {
     TrailerAfterHeader,               // Trailer seen after header w/o FE of FD set
     FlushedIncomplete,                // ALPIDE MEB was flushed by the busy handling
     StrobeExtended,                   // ALPIDE received a second trigger while the strobe was still open
+    WrongAlpideChipID,                // Impossible for given cable ALPIDE ChipOnModule ID
     NErrorsDefined
   };
 
@@ -103,7 +104,8 @@ struct ChipStat {
     "TruncatedBuffer",                              // Truncated buffer, 0 padding
     "TrailerAfterHeader",                           // Trailer seen after header w/o FE of FD set
     "FlushedIncomplete",                            // ALPIDE MEB was flushed by the busy handling
-    "StrobeExtended"                                // ALPIDE received a second trigger while the strobe was still open
+    "StrobeExtended",                               // ALPIDE received a second trigger while the strobe was still open
+    "Wrong Alpide ChipID",                          // Impossible for given cable ALPIDE ChipOnModule ID
   };
 
   static constexpr std::array<uint32_t, NErrorsDefined> ErrActions = {
@@ -139,7 +141,8 @@ struct ChipStat {
     ErrActPropagate | ErrActDump, // Truncated buffer while something was expected
     ErrActPropagate | ErrActDump, // trailer seen after header w/o FE of FD set
     ErrActPropagate | ErrActDump, // ALPIDE MEB was flushed by the busy handling
-    ErrActPropagate | ErrActDump  // ALPIDE received a second trigger while the strobe was still open
+    ErrActPropagate | ErrActDump, // ALPIDE received a second trigger while the strobe was still open
+    ErrActPropagate | ErrActDump, // Impossible for given cable ALPIDE ChipOnModule ID
   };
   uint16_t feeID = -1;
   size_t nHits = 0;
@@ -174,6 +177,7 @@ struct ChipStat {
   uint32_t getNErrors() const;
   uint32_t addErrors(uint32_t mask, uint16_t chID, int verbosity);
   uint32_t addErrors(const ChipPixelData& d, int verbosity);
+  static std::string reportErrors(const ChipPixelData& d);
   void print(bool skipNoErr = true, const std::string& pref = "FEEID") const;
 
   ClassDefNV(ChipStat, 1);

@@ -36,6 +36,7 @@ add_subdirectory(FOCAL)
 add_subdirectory(GlobalTracking)
 add_subdirectory(GlobalTrackingWorkflow)
 add_subdirectory(Vertexing)
+add_subdirectory(GLOQC)
 
 if(BUILD_ANALYSIS)
   add_subdirectory(AOD)
@@ -47,6 +48,8 @@ add_subdirectory(Calibration)
 add_subdirectory(DCS)
 
 add_subdirectory(Align)
+add_subdirectory(ForwardAlign)
+
 
 if(BUILD_SIMULATION)
   add_subdirectory(gconfig)

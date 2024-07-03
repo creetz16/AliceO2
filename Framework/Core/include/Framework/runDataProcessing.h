@@ -29,9 +29,8 @@
 #include "Framework/Logger.h"
 #include "Framework/CheckTypes.h"
 #include "Framework/StructToTuple.h"
-
+#include "Framework/ConfigParamDiscovery.h"
 #include <vector>
-#include <cstring>
 
 namespace o2::framework
 {
@@ -138,6 +137,7 @@ int doMain(int argc, char** argv, o2::framework::WorkflowSpec const& specs,
            std::vector<o2::framework::CallbacksPolicy> const& callbacksPolicies,
            std::vector<o2::framework::SendingPolicy> const& sendingPolicies,
            std::vector<o2::framework::ConfigParamSpec> const& workflowOptions,
+           std::vector<o2::framework::ConfigParamSpec> const& detectedOptions,
            o2::framework::ConfigContext& configContext);
 
 void doDefaultWorkflowTerminationHook();
@@ -193,6 +193,12 @@ int mainNoCatch(int argc, char** argv)
   workflowOptionsStore->preload();
   workflowOptionsStore->activate();
   ConfigParamRegistry workflowOptionsRegistry(std::move(workflowOptionsStore));
+  auto extraOptions = o2::framework::ConfigParamDiscovery::discover(workflowOptionsRegistry, argc, argv);
+  for (auto& extra : extraOptions) {
+    workflowOptions.push_back(extra);
+  }
+  workflowOptionsRegistry.loadExtra(extraOptions);
+
   ConfigContext configContext(workflowOptionsRegistry, argc, argv);
   o2::framework::WorkflowSpec specs = defineDataProcessing(configContext);
   overrideCloning(configContext, specs);
@@ -207,10 +213,11 @@ int mainNoCatch(int argc, char** argv)
   channelPolicies.insert(std::end(channelPolicies), std::begin(defaultChannelPolicies), std::end(defaultChannelPolicies));
   return doMain(argc, argv, specs,
                 channelPolicies, completionPolicies, dispatchPolicies,
-                resourcePolicies, callbacksPolicies, sendingPolicies, workflowOptions, configContext);
+                resourcePolicies, callbacksPolicies, sendingPolicies, workflowOptions, extraOptions, configContext);
 }
 
 int callMain(int argc, char** argv, int (*)(int, char**));
+char* getIdString(int argc, char** argv);
 
 int main(int argc, char** argv)
 {
@@ -219,13 +226,7 @@ int main(int argc, char** argv)
 
   int result = callMain(argc, argv, mainNoCatch);
 
-  char* idstring = nullptr;
-  for (int argi = 0; argi < argc; argi++) {
-    if (strcmp(argv[argi], "--id") == 0 && argi + 1 < argc) {
-      idstring = argv[argi + 1];
-      break;
-    }
-  }
+  char* idstring = getIdString(argc, argv);
   o2::framework::OnWorkflowTerminationHook onWorkflowTerminationHook;
   UserCustomizationsHelper::userDefinedCustomization(onWorkflowTerminationHook, 0);
   onWorkflowTerminationHook(idstring);

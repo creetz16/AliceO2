@@ -131,6 +131,22 @@ TEST_CASE("TestTreeParsing")
   REQUIRE(ptfilterspecs[0].left == (DatumSpec{std::string{"fPt"}, typeid(o2::aod::track::Pt).hash_code(), atype::FLOAT}));
   REQUIRE(ptfilterspecs[0].right == (DatumSpec{LiteralNode::var_t{0.5f}, atype::FLOAT}));
   REQUIRE(ptfilterspecs[0].result == (DatumSpec{0u, atype::BOOL}));
+
+  struct : ConfigurableGroup {
+    std::string prefix = "prefix";
+    Configurable<float> pTCut{"pTCut", 1.0f, "Lower pT limit"};
+  } group;
+  Filter ptfilter2 = o2::aod::track::pt > group.pTCut;
+  group.pTCut.name.insert(0, 1, '.');
+  group.pTCut.name.insert(0, group.prefix);
+  REQUIRE(ptfilter2.node->self.index() == 2);
+  REQUIRE(ptfilter2.node->left->self.index() == 1);
+  REQUIRE(ptfilter2.node->right->self.index() == 3);
+  REQUIRE(std::get<PlaceholderNode>(ptfilter2.node->right->self).name == "prefix.pTCut");
+  auto ptfilterspecs2 = createOperations(ptfilter2);
+  REQUIRE(ptfilterspecs2[0].left == (DatumSpec{std::string{"fPt"}, typeid(o2::aod::track::Pt).hash_code(), atype::FLOAT}));
+  REQUIRE(ptfilterspecs2[0].right == (DatumSpec{LiteralNode::var_t{1.0f}, atype::FLOAT}));
+  REQUIRE(ptfilterspecs2[0].result == (DatumSpec{0u, atype::BOOL}));
 }
 
 TEST_CASE("TestGandivaTreeCreation")
@@ -163,7 +179,7 @@ TEST_CASE("TestGandivaTreeCreation")
   auto gandiva_tree2 = createExpressionTree(ptespecs, schema2);
 
   auto gandiva_expression2 = makeExpression(gandiva_tree2, resfield2);
-  REQUIRE(gandiva_expression2->ToString() == "if (bool less_than_or_equal_to(float absf((float) fSigned1Pt), (const float) 1.17549e-38 raw(7fffe1))) { (const float) 8.50709e+37 raw(7e80001f) } else { float absf(float divide((const float) 1 raw(3f800000), (float) fSigned1Pt)) }");
+  REQUIRE(gandiva_expression2->ToString() == "if (bool less_than_or_equal_to(float absf((float) fSigned1Pt), (const float) 1.17549e-38 raw(800000))) { (const float) 8.50706e+37 raw(7e800000) } else { float absf(float divide((const float) 1 raw(3f800000), (float) fSigned1Pt)) }");
 
   auto projector_b = createProjector(schema2, ptespecs, resfield2);
   auto fields = o2::soa::createFieldsFromColumns(o2::aod::Tracks::persistent_columns_t{});
