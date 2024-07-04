@@ -141,7 +141,7 @@ void StrangenessTracker::processV0(int iv0, const V0& v0, const V0Index& v0Idx, 
 
   V0 correctedV0; // recompute V0 for Hypertriton
   if (!createKFV0(posTrack, negTrack, pidV0)) return; // reconstruct V0 with KF using Hypertriton/hyperhydrogen PID
-  if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, correctedV0)) return; // convert KFParticle V0 to TrackParCov object
+  if (!getTrackParCovFromKFP(kfpMother, pidV0, alphaV0 > 0 ? 1 : -1, (o2::track::TrackParCovF&)correctedV0)) return; // convert KFParticle V0 to TrackParCov object
 
   strangeTrack.mPartType = dataformats::kStrkV0;
   auto v0R = std::sqrt(v0.calcR2());
@@ -216,7 +216,7 @@ void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const Ca
         continue;
       }
 
-      cascade = (o2::track::TrackParCovF)casc;
+      // cascade = (o2::track::TrackParCovF)casc;
 
       if (!propagateToOuterParam(itsTrack, cascade)) { // propagate cascade to OuterParam of ITS track
         continue;
@@ -245,67 +245,6 @@ void StrangenessTracker::processCascade(int iCasc, const Cascade& casc, const Ca
   }
 }
 
-void StrangenessTracker::process3Body(int i3Body, const Decay3Body& dec3body, const Decay3BodyIndex& dec3bodyIdx, int iThread)
-{
-  if (!mStrParams->mSkip3Body) {
-    ClusAttachments structClus;
-    auto& daughterTracks = mDaughterTracks[iThread];
-    daughterTracks.resize(3); // resize to 3 prongs
-
-    StrangeTrack strangeTrack;
-    strangeTrack.mPartType = dataformats::kStrkThreeBody;
-    auto dec3bodyR = std::sqrt(dec3body.calcR2());
-    auto iBins3Body = mUtils.getBinRect(dec3body.getEta(), dec3body.getPhi(), mStrParams->mEtaBinSize, mStrParams->mPhiBinSize);
-    for (int& iBin3Body : iBins3Body) {
-      for (int iTrack{mTracksIdxTable[iBin3Body]}; iTrack < TMath::Min(mTracksIdxTable[iBin3Body + 1], int(mSortedITStracks.size())); iTrack++) {
-        strangeTrack.mMother = (o2::track::TrackParCovF)dec3body;
-        /// TODO: indices of daughters...
-        daughterTracks[kV0DauPos] = dec3body.getProng(kV0DauPos); // proton
-        daughterTracks[kV0DauNeg] = dec3body.getProng(kV0DauNeg); // pion
-        daughterTracks[kBach] = dec3body.getProng(kBach);         // deuteron
-        const auto& itsTrack = mSortedITStracks[iTrack];
-        const auto& ITSindexRef = mSortedITSindexes[iTrack];
-        if (mStrParams->mVertexMatching && (mITSvtxBrackets[ITSindexRef].getMin() > dec3bodyIdx.getVertexID() || mITSvtxBrackets[ITSindexRef].getMax() < dec3bodyIdx.getVertexID())) {
-          continue;
-        }
-        if (matchDecayToITStrack(dec3bodyR, strangeTrack, structClus, itsTrack, daughterTracks, iThread)) {
-          auto propInstance = o2::base::Propagator::Instance();
-          o2::track::TrackParCov decayVtxTrackClone = strangeTrack.mMother; // clone track and propagate to decay vertex
-          if (!propInstance->propagateToX(decayVtxTrackClone, strangeTrack.mDecayVtx[0], getBz(), o2::base::PropagatorImpl<float>::MAX_SIN_PHI, o2::base::PropagatorImpl<float>::MAX_STEP, mCorrType)) {
-            LOG(debug) << "Mother propagation to decay vertex failed";
-            continue;
-          }
-          decayVtxTrackClone.getPxPyPzGlo(strangeTrack.mDecayMom);
-          std::array<float, 3> momPos, momNeg, momBach;
-          mFitter4Body[iThread].propagateTracksToVertex();
-          mFitter4Body[iThread].getTrack(kV0DauPos).getPxPyPzGlo(momPos);
-          mFitter4Body[iThread].getTrack(kV0DauNeg).getPxPyPzGlo(momNeg);
-          mFitter4Body[iThread].getTrack(kBach).getPxPyPzGlo(momBach);
-          /// TODO: mother mass
-          if (daughterTracks[kBach].getCharge() > 0) {
-            strangeTrack.mMasses[0] = calcMotherMass3body(momPos, momNeg, momBach, PID::Proton, PID::Pion, PID::Deuteron);
-          } else {
-            strangeTrack.mMasses[0] = calcMotherMass3body(momPos, momNeg, momBach, PID::Pion, PID::Proton, PID::Deuteron);
-          }
-
-          LOG(debug) << "ITS Track matched with a dec3body decay topology ....";
-          LOG(debug) << "Number of ITS track clusters attached: " << itsTrack.getNumberOfClusters();
-          strangeTrack.mDecayRef = i3Body;
-          strangeTrack.mITSRef = mSortedITSindexes[iTrack];
-          mStrangeTrackVec[iThread].push_back(strangeTrack);
-          mClusAttachments[iThread].push_back(structClus);
-          if (mMCTruthON) {
-            auto lab = getStrangeTrackLabel(itsTrack, strangeTrack, structClus);
-            mStrangeTrackLabels[iThread].push_back(lab);
-          }
-        }
-      }
-    }
-  } else {
-    return;
-  }
-}
-
 void StrangenessTracker::process()
 {
   #ifdef HomogeneousField
@@ -322,14 +261,6 @@ void StrangenessTracker::process()
   for (int iCasc{0}; iCasc < mInputCascadeTracks.size(); iCasc++) {
     LOG(debug) << "Analysing Cascade: " << iCasc + 1 << "/" << mInputCascadeTracks.size();
     processCascade(iCasc, mInputCascadeTracks[iCasc], mInputCascadeIndices[iCasc], mInputV0tracks[mInputCascadeIndices[iCasc].getV0ID()]);
-  }
-
-  // Loop over 3bodys
-  if (!mStrParams->mSkip3Body) {
-    for (int i3Body{0}; i3Body < mInput3BodyTracks.size(); i3Body++) {
-      LOG(debug) << "Analysing 3-Body: " << i3Body + 1 << "/" << mInput3BodyTracks.size();
-      process3Body(i3Body, mInput3BodyTracks[i3Body], mInput3BodyIndices[i3Body]);
-    }
   }
 }
 
@@ -440,7 +371,7 @@ bool StrangenessTracker::matchDecayToITStrack(float decayR, StrangeTrack& strang
   }
 
   // final kinematic constraint of topology
-  if (motherClusters.size() > 0) 
+  if (mStrParams->useKineFit && motherClusters.size() > 0) 
   {
     /// BRIEF: if clusters were attached to the mother, we want to use them to constrain the mother parameters at the decay vertex, which was fitted from the daughters.
     /// strangeTrack.mMother is TrackParCov object with parameters at the innermost cluster of the attached ITS tracklet

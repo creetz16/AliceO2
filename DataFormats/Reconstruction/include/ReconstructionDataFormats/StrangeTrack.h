@@ -33,8 +33,6 @@ struct StrangeTrack {
   o2::track::TrackParCovF mMother;
   unsigned int mITSRef = -99;
   unsigned int mDecayRef = -99;
-  std::array<float, 3> mDecayVtx;
-  std::array<float, 3> mDecayMom;
   std::array<float, 8> mDecayParams;
   std::array<float, 36> mDecayCov;
   std::array<float, 2> mMasses; // V0: hypertriton and hyperhydrongen4, cascade: Xi and Omega.

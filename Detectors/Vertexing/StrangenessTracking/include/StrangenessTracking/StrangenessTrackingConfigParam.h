@@ -37,6 +37,7 @@ struct StrangenessTrackingParamConfig : public o2::conf::ConfigurableParamHelper
 
   // KF parameters
   int kfConstructMethod = 0;   // Construct method for KFParticle reconstruction
+  bool useKineFit = true;      // Flag to enable/disable final kinematic refit of topology
   bool kfMassConst = true;     // Flag to enable/disable the mass constraint on the cascade V0
   int pidV0 = 0;               // PID hypothesis for the V0 fitting - 0: hypertriton, 1: hyperhydrogen
   int pidCasc = 0;             // PID hypothesis for the cascade fitting - 0: XiMinus, 1: OmegaMinus
